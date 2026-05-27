@@ -7,3 +7,11 @@ dist-ssr
 .env
 .env.local
 .vite
+
+# tsc -b composite build artifacts
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
+# Supabase CLI working dir
+supabase/.temp/

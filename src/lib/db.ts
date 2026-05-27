@@ -1,0 +1,300 @@
+// Typed Supabase data-access helpers for v0 (partnership dogfood scope).
+// Higher-level mutation orchestration lives in src/state/store.ts; this file
+// is intentionally CRUD-only.
+//
+// RLS enforces the access rules on the server; these helpers don't re-check.
+
+import { supabase } from "./supabase";
+import type { OpsBucket, OpsCardStatus } from "../types";
+
+// ---------- profiles ----------
+
+export type Profile = {
+  id: string;
+  name: string;
+  initials: string;
+};
+
+export async function getProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id,name,initials")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateOwnProfile(
+  patch: Partial<Pick<Profile, "name" | "initials">>,
+): Promise<void> {
+  const { error } = await supabase.from("profiles").update(patch).eq(
+    "id",
+    (await supabase.auth.getUser()).data.user?.id ?? "",
+  );
+  if (error) throw error;
+}
+
+// ---------- partnerships ----------
+
+export type Partnership = {
+  id: string;
+  created_at: string;
+};
+
+export async function getMyPartnerships(): Promise<Partnership[]> {
+  const { data, error } = await supabase
+    .from("partnerships")
+    .select("id,created_at");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createPartnership(): Promise<string> {
+  const { data: partnership, error } = await supabase
+    .from("partnerships")
+    .insert({})
+    .select("id")
+    .single();
+  if (error) throw error;
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const { error: memberErr } = await supabase
+    .from("partnership_members")
+    .insert({ partnership_id: partnership.id, user_id: user.id });
+  if (memberErr) throw memberErr;
+  return partnership.id;
+}
+
+export async function getPartnershipMembers(
+  partnershipId: string,
+): Promise<Profile[]> {
+  const { data, error } = await supabase
+    .from("partnership_members")
+    .select("user_id, profiles(id,name,initials)")
+    .eq("partnership_id", partnershipId);
+  if (error) throw error;
+  return (data ?? [])
+    .map((r) => r.profiles as unknown as Profile)
+    .filter(Boolean);
+}
+
+// ---------- invites ----------
+
+export type Invite = {
+  code: string;
+  partnership_id: string;
+  invited_by: string;
+  expires_at: string;
+  redeemed_by: string | null;
+  redeemed_at: string | null;
+};
+
+const randomCode = (len = 8) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(len)))
+    .map((b) => "ABCDEFGHJKMNPQRSTUVWXYZ23456789"[b % 31])
+    .join("");
+
+export async function createInvite(partnershipId: string): Promise<Invite> {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const code = randomCode();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("partnership_invites")
+    .insert({
+      code,
+      partnership_id: partnershipId,
+      invited_by: user.id,
+      expires_at: expiresAt,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Invite;
+}
+
+// Redeem flow uses a security-definer RPC (added in a later migration) so that
+// the redeemer can look up by code without having read access to all invites.
+export async function redeemInvite(code: string): Promise<string> {
+  const { data, error } = await supabase.rpc("redeem_invite", { p_code: code });
+  if (error) throw error;
+  return data as string; // returns partnership_id
+}
+
+// ---------- threads ----------
+
+export type ThreadRow = {
+  id: string;
+  kind: "partnership" | "personal";
+  partnership_id: string | null;
+  owner_id: string | null;
+  title: string;
+  is_default: boolean;
+  agent_active: boolean;
+  created_at: string;
+  last_activity_at: string;
+};
+
+export async function getThreadsForPartnership(
+  partnershipId: string,
+): Promise<ThreadRow[]> {
+  const { data, error } = await supabase
+    .from("threads")
+    .select("*")
+    .eq("partnership_id", partnershipId)
+    .order("last_activity_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as ThreadRow[];
+}
+
+export async function getOrCreatePersonalThread(): Promise<ThreadRow> {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const { data: existing, error: readErr } = await supabase
+    .from("threads")
+    .select("*")
+    .eq("kind", "personal")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (existing) return existing as ThreadRow;
+  const { data: created, error: createErr } = await supabase
+    .from("threads")
+    .insert({
+      kind: "personal",
+      owner_id: user.id,
+      title: "Home",
+      is_default: true,
+    })
+    .select("*")
+    .single();
+  if (createErr) throw createErr;
+  return created as ThreadRow;
+}
+
+export async function createPartnershipThread(
+  partnershipId: string,
+  title: string,
+  isDefault = false,
+): Promise<ThreadRow> {
+  const { data, error } = await supabase
+    .from("threads")
+    .insert({
+      kind: "partnership",
+      partnership_id: partnershipId,
+      title,
+      is_default: isDefault,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as ThreadRow;
+}
+
+// ---------- messages ----------
+
+export type MessageRow = {
+  id: string;
+  thread_id: string;
+  author_kind: "human" | "agent";
+  author_user_id: string | null;
+  body: string;
+  briefing: unknown | null;
+  fold_group_id: string | null;
+  fold_summary: string | null;
+  created_at: string;
+};
+
+export async function getMessages(
+  threadId: string,
+  limit = 200,
+): Promise<MessageRow[]> {
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []) as MessageRow[];
+}
+
+export async function sendMessage(
+  threadId: string,
+  body: string,
+): Promise<MessageRow> {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      thread_id: threadId,
+      author_kind: "human",
+      author_user_id: user.id,
+      body,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as MessageRow;
+}
+
+export function subscribeToThreadMessages(
+  threadId: string,
+  onInsert: (row: MessageRow) => void,
+) {
+  const channel = supabase
+    .channel(`messages:${threadId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "messages",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => onInsert(payload.new as MessageRow),
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+// ---------- ops cards ----------
+
+export type OpsCardRow = {
+  id: string;
+  thread_id: string;
+  source_message_id: string | null;
+  source_user_id: string | null;
+  title: string;
+  subtitle: string | null;
+  owner_id: string;
+  when_label: string;
+  bucket: OpsBucket;
+  status: OpsCardStatus;
+  created_at: string;
+};
+
+export async function getOpsCards(threadId: string): Promise<OpsCardRow[]> {
+  const { data, error } = await supabase
+    .from("ops_cards")
+    .select("*")
+    .eq("thread_id", threadId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as OpsCardRow[];
+}
+
+export async function updateOpsCardStatus(
+  cardId: string,
+  status: OpsCardStatus,
+): Promise<void> {
+  const { error } = await supabase
+    .from("ops_cards")
+    .update({ status })
+    .eq("id", cardId);
+  if (error) throw error;
+}

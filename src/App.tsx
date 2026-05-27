@@ -13,7 +13,9 @@ import { PersonalThread } from "./views/PersonalThread";
 import { ConnectShow } from "./views/ConnectShow";
 import { ConnectScan } from "./views/ConnectScan";
 import { ReviewNewContacts } from "./views/ReviewNewContacts";
+import { Login } from "./views/Login";
 import { useHydratedReset, useStore } from "./state/store";
+import { useSession } from "./lib/auth";
 
 type Route =
   | { name: "home" }
@@ -89,11 +91,33 @@ const ThreadRoute = ({
 
 export const App = () => {
   useHydratedReset();
+  const session = useSession();
   const [route, setRoute] = useState<Route>({ name: "home" });
   const [menuView, setMenuView] = useState<"closed" | "menu" | "connect">(
     "closed",
   );
   const currentUserId = useStore((s) => s.currentUserId);
+
+  // Auth gate. While the session is loading, show an empty frame.
+  // When unauthenticated, show the login screen. Otherwise fall through.
+  if (session === "loading") {
+    return (
+      <div className="min-h-full w-full flex items-center justify-center py-6">
+        <PhoneFrame>
+          <div className="h-full w-full" />
+        </PhoneFrame>
+      </div>
+    );
+  }
+  if (session === null) {
+    return (
+      <div className="min-h-full w-full flex items-center justify-center py-6">
+        <PhoneFrame>
+          <Login />
+        </PhoneFrame>
+      </div>
+    );
+  }
   const personalThreadId = useStore(
     (s) =>
       s.threads.find(

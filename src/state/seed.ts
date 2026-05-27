@@ -7,19 +7,52 @@ export const seedPartnerships: Partnership[] = [
 export const seedUsers: User[] = [
   { id: "jake", name: "Jake", initials: "JS" },
   { id: "jenny", name: "Jenny", initials: "JE" },
+  { id: "priya", name: "Priya Shah", initials: "PS" },
   { id: "adam", name: "Adam", initials: "AD" },
   { id: "john", name: "John", initials: "JN" },
   { id: "matt", name: "Matt", initials: "MT" },
   { id: "sarah", name: "Sarah", initials: "SR" },
 ];
 
-const t0 = Date.parse("2026-05-18T18:42:00Z");
+// Seed times anchor to "now" so timestamps stay fresh across sessions.
+const t0 = Date.now();
 const min = (n: number) => t0 + n * 60_000;
 const hr = (n: number) => t0 - n * 60 * 60_000;
 const days = (n: number) => t0 - n * 24 * 60 * 60_000;
 
 const memberOutreach = (othersPhrase: string) =>
   `Jake's trying to plan dinner with you, ${othersPhrase}, in the next two weeks. What works for you? Any preferences on neighborhood, cuisine, or vibe?`;
+
+const makeFreshRelationship = (
+  id: string,
+  name: string,
+  role: string,
+  company: string,
+  metWhere: string,
+  createdAt: number,
+): Thread[] => {
+  const firstName = name.split(" ")[0];
+  return [
+    {
+      kind: "relationship",
+      id,
+      hostId: "jake",
+      agentActive: true,
+      createdAt,
+      contact: { name, role, company, metWhere, metWhen: createdAt },
+      intents: [],
+      privateWithAgent: [
+        {
+          id: `${id}-welcome`,
+          author: { kind: "agent" },
+          body: `Just connected with ${firstName} at ${metWhere}. Quick — anything you want me to remember about them, or what you talked about? Or skip; I can draft a polite note from just the basics.`,
+          createdAt,
+        },
+      ],
+      outbound: [],
+    },
+  ];
+};
 
 export const seedThreads: Thread[] = [
   {
@@ -46,6 +79,12 @@ export const seedThreads: Thread[] = [
         author: { kind: "agent" },
         body: "Set for Friday. Morning, afternoon, or evening?",
         createdAt: hr(0.39),
+      },
+      {
+        id: "ja-4",
+        author: { kind: "agent" },
+        body: "Also — you added 4 new contacts today (Priya, Marcus, Jen, David). Want to walk through them so I can draft follow-ups? Takes a minute.",
+        createdAt: hr(0.1),
       },
     ],
   },
@@ -149,6 +188,30 @@ export const seedThreads: Thread[] = [
       },
     },
   },
+  ...makeFreshRelationship(
+    "rel-marcus",
+    "Marcus Lee",
+    "VP Engineering",
+    "Linear",
+    "SF Tech Week",
+    hr(5),
+  ),
+  ...makeFreshRelationship(
+    "rel-jen",
+    "Jen Tanaka",
+    "Head of Design",
+    "Figma",
+    "SF Tech Week",
+    hr(3),
+  ),
+  ...makeFreshRelationship(
+    "rel-david",
+    "David Cho",
+    "Founder",
+    "Replicate",
+    "SF Tech Week",
+    hr(1.5),
+  ),
   {
     kind: "relationship",
     id: "anna-chen",

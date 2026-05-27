@@ -15,6 +15,14 @@ type Summary = {
 };
 
 const summarize = (intents: MutualIntent[]): Summary => {
+  if (intents.length === 0) {
+    return {
+      dot: "bg-agent",
+      label: "Just connected · no intents yet",
+      tone: "text-agent",
+    };
+  }
+
   const waitingYou = intents.filter((i) => i.status === "awaiting-you");
   const waitingThem = intents.filter((i) => i.status === "awaiting-them");
   const ratified = intents.filter((i) => i.status === "ratified");

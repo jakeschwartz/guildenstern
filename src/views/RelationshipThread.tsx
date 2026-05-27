@@ -1,5 +1,10 @@
 import { useMemo, useState } from "react";
-import { useStore } from "../state/store";
+import {
+  addIntentFromChip,
+  proposeDraftForThread,
+  sendDraft,
+  useStore,
+} from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { IntentLedger } from "../components/IntentLedger";
@@ -8,6 +13,7 @@ import { ChannelToggle, type Channel } from "../components/ChannelToggle";
 import { ThreadAnchor } from "../components/ThreadAnchor";
 import { Sheet } from "../components/Sheet";
 import { Avatar } from "../components/Avatar";
+import { IntentChips } from "../components/IntentChips";
 import type { User } from "../types";
 
 type Props = {
@@ -62,6 +68,10 @@ export const RelationshipThread = ({ threadId, onBack }: Props) => {
   const messages =
     channel === "private" ? thread.privateWithAgent : thread.outbound;
   const firstName = thread.contact.name.split(" ")[0];
+  const usedChipBodies = new Set(thread.intents.map((i) => i.body));
+  const firstAgentMessage = thread.privateWithAgent.find(
+    (m) => m.author.kind === "agent",
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -93,12 +103,12 @@ export const RelationshipThread = ({ threadId, onBack }: Props) => {
           channel === "private" ? "bg-agent-tint/20" : "bg-paper"
         }`}
       >
-        {channel === "outbound" && messages.length > 0 && (
-          <div className="text-[12px] text-muted text-center pb-1">
-            Read-only · what your agent sent {firstName} via email
+        {channel === "outbound" && messages.length === 0 && (
+          <div className="text-[13px] text-muted italic mt-6 text-center">
+            No draft yet. Add an intent or tap Propose draft below.
           </div>
         )}
-        {messages.length === 0 && (
+        {channel === "private" && messages.length === 0 && (
           <div className="text-[13px] text-muted italic mt-6 text-center">
             Nothing here yet.
           </div>
@@ -110,13 +120,41 @@ export const RelationshipThread = ({ threadId, onBack }: Props) => {
               : null;
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
+          const isFirstAgent =
+            channel === "private" &&
+            firstAgentMessage &&
+            m.id === firstAgentMessage.id;
+          const isDraft = channel === "outbound" && m.draft;
           return (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              author={author}
-              isSelf={isSelf}
-            />
+            <div key={m.id} className="flex flex-col gap-3">
+              {isDraft && (
+                <div className="text-[11px] text-attention tracking-wide">
+                  Draft — review before sending
+                </div>
+              )}
+              <MessageBubble message={m} author={author} isSelf={isSelf} />
+              {isDraft && (
+                <div className="pl-3.5 flex items-center gap-2">
+                  <button
+                    onClick={() => sendDraft(thread.id, m.id)}
+                    className="h-9 px-4 rounded-full bg-agent text-paper text-[12.5px] font-semibold hover:opacity-90"
+                  >
+                    Send
+                  </button>
+                  <span className="text-[11.5px] text-muted">
+                    will be sent to {firstName}
+                  </span>
+                </div>
+              )}
+              {isFirstAgent && (
+                <div className="pl-3.5">
+                  <IntentChips
+                    usedBodies={usedChipBodies}
+                    onPick={(body) => addIntentFromChip(thread.id, body)}
+                  />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -132,10 +170,15 @@ export const RelationshipThread = ({ threadId, onBack }: Props) => {
       {channel === "outbound" && (
         <div className="border-t border-rule px-4 h-14 flex items-center justify-between bg-paper">
           <div className="text-[12px] text-muted">
-            Drafts go through Agent.
+            Agent drafts; you review.
           </div>
-          <button className="text-[12px] font-medium text-ink border border-rule rounded-full px-3 h-9 hover:border-ink transition-colors">
-            Propose draft
+          <button
+            onClick={() => proposeDraftForThread(thread.id)}
+            className="text-[12px] font-medium text-ink border border-rule rounded-full px-3 h-9 hover:border-ink transition-colors"
+          >
+            {thread.outbound.some((m) => m.draft)
+              ? "Re-draft"
+              : "Propose draft"}
           </button>
         </div>
       )}

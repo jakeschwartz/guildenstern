@@ -6,3 +6,4 @@
 - [The spoke→shared primitive](project_spoke_shared_primitive.md) — the load-bearing structural pattern that appears in every thread kind. Worth not re-deriving.
 - [Open design questions](project_open_design_questions.md) — what's deliberately unresolved as of end-of-day-one.
 - [Personal use case Jenny bursts](project_jenny_burst_use_case.md) — the founder's stated pain point that drives the partnership/asymmetric-buffer design.
+- [Onboarding vs daily use](feedback_onboarding_vs_daily_use.md) — two surfaces with different success criteria; per-relationship onboarding is structurally important and earns disproportionate craft.

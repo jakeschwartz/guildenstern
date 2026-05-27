@@ -7,9 +7,12 @@ import type { User } from "../types";
 type Props = {
   threadId: string;
   onBack: () => void;
+  onReviewNew: () => void;
 };
 
-export const PersonalThread = ({ threadId, onBack }: Props) => {
+const REVIEW_PROMPT_IDS = new Set(["ja-4"]);
+
+export const PersonalThread = ({ threadId, onBack, onReviewNew }: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "personal"),
   );
@@ -84,13 +87,21 @@ export const PersonalThread = ({ threadId, onBack }: Props) => {
               : null;
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
+          const showReviewCTA = REVIEW_PROMPT_IDS.has(m.id);
           return (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              author={author}
-              isSelf={isSelf}
-            />
+            <div key={m.id} className="flex flex-col gap-3">
+              <MessageBubble message={m} author={author} isSelf={isSelf} />
+              {showReviewCTA && (
+                <div className="pl-3.5">
+                  <button
+                    onClick={onReviewNew}
+                    className="h-10 px-4 rounded-full bg-agent text-paper text-[13px] font-semibold hover:opacity-90 transition-opacity"
+                  >
+                    Walk through them →
+                  </button>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>

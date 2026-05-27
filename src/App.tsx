@@ -9,19 +9,26 @@ import { PartnershipThread } from "./views/PartnershipThread";
 import { ArbitrationThread } from "./views/ArbitrationThread";
 import { ArbitrationSpoke } from "./views/ArbitrationSpoke";
 import { PersonalThread } from "./views/PersonalThread";
+import { ConnectShow } from "./views/ConnectShow";
+import { ConnectScan } from "./views/ConnectScan";
+import { ReviewNewContacts } from "./views/ReviewNewContacts";
 import { useHydratedReset, useStore } from "./state/store";
 
 type Route =
   | { name: "threads" }
   | { name: "thread"; threadId: string }
   | { name: "spoke"; threadId: string }
-  | { name: "vent-spoke"; threadId: string };
+  | { name: "vent-spoke"; threadId: string }
+  | { name: "connect-show" }
+  | { name: "connect-scan" }
+  | { name: "review-new" };
 
 type ThreadRouteProps = {
   threadId: string;
   onBack: () => void;
   onOpenSpoke: () => void;
   onOpenVentSpoke: () => void;
+  onOpenReviewNew: () => void;
 };
 
 const ThreadRoute = ({
@@ -29,6 +36,7 @@ const ThreadRoute = ({
   onBack,
   onOpenSpoke,
   onOpenVentSpoke,
+  onOpenReviewNew,
 }: ThreadRouteProps) => {
   const thread = useStore((s) => s.threads.find((t) => t.id === threadId));
   if (!thread) {
@@ -42,7 +50,13 @@ const ThreadRoute = ({
     );
   }
   if (thread.kind === "personal") {
-    return <PersonalThread threadId={threadId} onBack={onBack} />;
+    return (
+      <PersonalThread
+        threadId={threadId}
+        onBack={onBack}
+        onReviewNew={onOpenReviewNew}
+      />
+    );
   }
   if (thread.kind === "group") {
     return (
@@ -78,6 +92,23 @@ export const App = () => {
         {route.name === "threads" && (
           <ThreadList
             onOpen={(threadId) => setRoute({ name: "thread", threadId })}
+            onShowMyCode={() => setRoute({ name: "connect-show" })}
+            onScan={() => setRoute({ name: "connect-scan" })}
+          />
+        )}
+        {route.name === "connect-show" && (
+          <ConnectShow onBack={() => setRoute({ name: "threads" })} />
+        )}
+        {route.name === "connect-scan" && (
+          <ConnectScan
+            onBack={() => setRoute({ name: "threads" })}
+            onOpenThread={(threadId) => setRoute({ name: "thread", threadId })}
+          />
+        )}
+        {route.name === "review-new" && (
+          <ReviewNewContacts
+            onBack={() => setRoute({ name: "threads" })}
+            onOpenThread={(threadId) => setRoute({ name: "thread", threadId })}
           />
         )}
         {route.name === "thread" && (
@@ -90,6 +121,7 @@ export const App = () => {
             onOpenVentSpoke={() =>
               setRoute({ name: "vent-spoke", threadId: route.threadId })
             }
+            onOpenReviewNew={() => setRoute({ name: "review-new" })}
           />
         )}
         {route.name === "spoke" && (

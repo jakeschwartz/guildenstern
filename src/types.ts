@@ -28,6 +28,8 @@ export type Message = {
   body: string;
   createdAt: number;
   reactions?: Reaction[];
+  // For outbound channel: true while awaiting user's send.
+  draft?: boolean;
 };
 
 export type Spoke = {

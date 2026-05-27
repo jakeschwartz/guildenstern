@@ -51,19 +51,11 @@ export async function getMyPartnerships(): Promise<Partnership[]> {
 }
 
 export async function createPartnership(): Promise<string> {
-  const { data: partnership, error } = await supabase
-    .from("partnerships")
-    .insert({})
-    .select("id")
-    .single();
+  // Single RPC so partnership row + self-membership happen atomically without
+  // tripping the "must be a member to read" SELECT policy on partnerships.
+  const { data, error } = await supabase.rpc("create_partnership_with_me");
   if (error) throw error;
-  const user = (await supabase.auth.getUser()).data.user;
-  if (!user) throw new Error("Not authenticated");
-  const { error: memberErr } = await supabase
-    .from("partnership_members")
-    .insert({ partnership_id: partnership.id, user_id: user.id });
-  if (memberErr) throw memberErr;
-  return partnership.id;
+  return data as string;
 }
 
 export async function getPartnershipMembers(

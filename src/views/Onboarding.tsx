@@ -8,6 +8,23 @@ import {
 import { signOut } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 
+// Supabase errors aren't Error instances; they're plain objects with
+// { message, code, details, hint }. Format them readably.
+const fmtErr = (e: unknown): string => {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const o = e as Record<string, unknown>;
+    if (typeof o.message === "string") return o.message;
+    try {
+      return JSON.stringify(o);
+    } catch {
+      return "Unknown error";
+    }
+  }
+  return String(e);
+};
+
 type Mode = "menu" | "create" | "join" | "show-code";
 
 export const Onboarding = () => {
@@ -31,7 +48,7 @@ export const Onboarding = () => {
       setCode(inviteCode);
       setMode("show-code");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(fmtErr(e));
     } finally {
       setBusy(false);
     }
@@ -45,7 +62,7 @@ export const Onboarding = () => {
       await redeemInviteCode(enteredCode.trim().toUpperCase());
       await refreshSession();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(fmtErr(e));
     } finally {
       setBusy(false);
     }

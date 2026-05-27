@@ -2,17 +2,24 @@ import { useMemo } from "react";
 import { useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
-import type { User } from "../types";
+import { BriefingCard } from "../components/BriefingCard";
+import type { BriefingItem, User } from "../types";
 
 type Props = {
   threadId: string;
   onBack: () => void;
   onReviewNew: () => void;
+  onOpenThread: (threadId: string) => void;
 };
 
 const REVIEW_PROMPT_IDS = new Set(["ja-4"]);
 
-export const PersonalThread = ({ threadId, onBack, onReviewNew }: Props) => {
+export const PersonalThread = ({
+  threadId,
+  onBack,
+  onReviewNew,
+  onOpenThread,
+}: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "personal"),
   );
@@ -88,9 +95,27 @@ export const PersonalThread = ({ threadId, onBack, onReviewNew }: Props) => {
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
           const showReviewCTA = REVIEW_PROMPT_IDS.has(m.id);
+          const handleItemTap = (item: BriefingItem) => {
+            if (item.action === "review-new") {
+              onReviewNew();
+              return;
+            }
+            if (item.threadId) {
+              onOpenThread(item.threadId);
+            }
+          };
           return (
             <div key={m.id} className="flex flex-col gap-3">
-              <MessageBubble message={m} author={author} isSelf={isSelf} />
+              {m.briefing && (
+                <BriefingCard
+                  title={m.briefing.title}
+                  items={m.briefing.items}
+                  onTapItem={handleItemTap}
+                />
+              )}
+              {m.body && (
+                <MessageBubble message={m} author={author} isSelf={isSelf} />
+              )}
               {showReviewCTA && (
                 <div className="pl-3.5">
                   <button

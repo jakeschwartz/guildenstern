@@ -22,6 +22,23 @@ export type Reaction = {
   at: number;
 };
 
+export type BriefingTone =
+  | "attention"
+  | "agent"
+  | "deliberation"
+  | "muted"
+  | "neutral";
+
+export type BriefingItem = {
+  label: string;
+  detail?: string;
+  status?: string;
+  tone?: BriefingTone;
+  threadId?: ThreadId;
+  // Special non-thread row, e.g. "4 new contacts to review"
+  action?: "review-new";
+};
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
@@ -30,6 +47,12 @@ export type Message = {
   reactions?: Reaction[];
   // For outbound channel: true while awaiting user's send.
   draft?: boolean;
+  // For structured agent summaries (e.g. morning briefing).
+  // When present, BriefingCard renders before the optional trailing body.
+  briefing?: {
+    title: string;
+    items: BriefingItem[];
+  };
 };
 
 export type Spoke = {

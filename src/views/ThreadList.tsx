@@ -1,13 +1,10 @@
-import { useState } from "react";
 import { useStore } from "../state/store";
 import type { PersonalThread, Thread, User } from "../types";
 import { formatRelative } from "../lib/time";
-import { Sheet } from "../components/Sheet";
 
 type Props = {
   onOpen: (threadId: string) => void;
-  onShowMyCode: () => void;
-  onScan: () => void;
+  onBack: () => void;
 };
 
 const lastActivity = (t: Thread): number => {
@@ -62,17 +59,12 @@ const previewText = (t: Thread, usersById: Map<string, User>): string => {
   return t.question;
 };
 
-export const ThreadList = ({ onOpen, onShowMyCode, onScan }: Props) => {
+export const ThreadList = ({ onOpen, onBack }: Props) => {
   const threads = useStore((s) => s.threads);
   const partnerships = useStore((s) => s.partnerships);
   const users = useStore((s) => s.users);
   const currentUserId = useStore((s) => s.currentUserId);
   const usersById = new Map(users.map((u) => [u.id, u]));
-  type SheetView = "closed" | "menu" | "connect";
-  const [sheetView, setSheetView] = useState<SheetView>("closed");
-
-  // Suppress unused warning when me isn't read elsewhere.
-  void usersById.get(currentUserId);
 
   const partnerNameFor = (partnershipId: string): string | null => {
     const p = partnerships.find((pp) => pp.id === partnershipId);
@@ -102,8 +94,15 @@ export const ThreadList = ({ onOpen, onShowMyCode, onScan }: Props) => {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="px-5 pt-11 pb-2 border-b border-rule">
-        <span className="text-[12px] text-muted">Threads</span>
+      <header className="pl-2 pr-5 pt-11 pb-2 border-b border-rule flex items-center gap-2">
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          className="h-11 w-11 flex items-center justify-center text-muted hover:text-ink"
+        >
+          <span className="text-[18px] leading-none">←</span>
+        </button>
+        <span className="text-[12px] text-muted">All threads</span>
       </header>
 
       <div className="flex-1 overflow-y-auto">
@@ -129,78 +128,6 @@ export const ThreadList = ({ onOpen, onShowMyCode, onScan }: Props) => {
         ))}
       </div>
 
-      <button
-        onClick={() => setSheetView("menu")}
-        aria-label="Menu"
-        className="absolute bottom-4 right-4 z-20 h-12 w-12 rounded-full bg-ink text-paper shadow-[0_6px_20px_-4px_rgba(0,0,0,0.65)] flex items-center justify-center hover:opacity-90 transition-opacity"
-      >
-        <span className="flex flex-col gap-[3px]">
-          <span className="block w-[16px] h-[1.5px] bg-current rounded-full" />
-          <span className="block w-[16px] h-[1.5px] bg-current rounded-full" />
-          <span className="block w-[16px] h-[1.5px] bg-current rounded-full" />
-        </span>
-      </button>
-
-      <Sheet
-        open={sheetView !== "closed"}
-        onClose={() => setSheetView("closed")}
-        title={sheetView === "connect" ? "Connect" : undefined}
-      >
-        {sheetView === "menu" && (
-          <ul className="divide-y divide-rule border-y border-rule -mx-5">
-            <li>
-              <button
-                onClick={() => setSheetView("connect")}
-                className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors flex items-center justify-between gap-3"
-              >
-                <div>
-                  <div className="text-[15px] font-semibold text-ink tracking-tight">
-                    Connect
-                  </div>
-                  <div className="text-[12.5px] text-muted mt-0.5">
-                    Open a thread with someone you just met
-                  </div>
-                </div>
-                <span className="text-muted text-[14px]">›</span>
-              </button>
-            </li>
-          </ul>
-        )}
-        {sheetView === "connect" && (
-          <>
-            <div className="text-[13px] text-muted mb-4 leading-relaxed">
-              Show your code, or scan theirs. Either way opens a thread between
-              your agents.
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => {
-                  setSheetView("closed");
-                  onShowMyCode();
-                }}
-                className="aspect-square rounded-2xl border border-rule bg-card hover:bg-card/60 flex flex-col items-center justify-center gap-2 transition-colors"
-              >
-                <span className="text-[24px] leading-none">▢</span>
-                <span className="text-[14px] font-semibold text-ink">
-                  My code
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  setSheetView("closed");
-                  onScan();
-                }}
-                className="aspect-square rounded-2xl border border-rule bg-card hover:bg-card/60 flex flex-col items-center justify-center gap-2 transition-colors"
-              >
-                <span className="text-[24px] leading-none">⌖</span>
-                <span className="text-[14px] font-semibold text-ink">
-                  Scan a code
-                </span>
-              </button>
-            </div>
-          </>
-        )}
-      </Sheet>
     </div>
   );
 };

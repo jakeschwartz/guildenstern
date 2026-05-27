@@ -65,8 +65,34 @@ export const seedThreads: Thread[] = [
       {
         id: "ja-1",
         author: { kind: "agent" },
-        body: "Morning. Quick read of where you are:\n• House: 1 thing on your plate — callback to the contractor\n• Decision with Jenny: she's shared her position; yours hasn't moved\n• Anna Chen: Thursday's 10:30 call is on the calendar\n\nAnything on your mind?",
+        body: "Anything on your mind?",
         createdAt: hr(0.5),
+        briefing: {
+          title: "Morning",
+          items: [
+            {
+              label: "House",
+              detail: "Contractor callback today",
+              status: "1 on you",
+              tone: "attention",
+              threadId: "jj-house",
+            },
+            {
+              label: "Decision · with Jenny",
+              detail: "Your position not shared",
+              status: "on you",
+              tone: "deliberation",
+              threadId: "jj-arb-contractor",
+            },
+            {
+              label: "Anna Chen",
+              detail: "Call confirmed",
+              status: "Thu 10:30",
+              tone: "agent",
+              threadId: "anna-chen",
+            },
+          ],
+        },
       },
       {
         id: "ja-2",

@@ -108,14 +108,20 @@ const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
 // ---------- hydration ----------
 
 const realtimeUnsubs: Array<() => void> = [];
+const subscribedThreadIds = new Set<string>();
 
 const teardownRealtime = () => {
   while (realtimeUnsubs.length) {
     realtimeUnsubs.pop()?.();
   }
+  subscribedThreadIds.clear();
 };
 
 const subscribeThread = (threadId: string) => {
+  // Idempotent: re-running hydrate() shouldn't try to subscribe twice. Supabase
+  // doesn't allow .on(postgres_changes) on an already-subscribed channel.
+  if (subscribedThreadIds.has(threadId)) return;
+  subscribedThreadIds.add(threadId);
   realtimeUnsubs.push(
     db.subscribeToThreadMessages(threadId, (row) => {
       const msg = messageRowToMessage(row);
@@ -209,6 +215,7 @@ export const hydrate = async (session: Session) => {
       threads: [personalThread, ...partnershipThreads],
     });
   } catch (e) {
+    console.error("[guildenstern] hydrate failed", e);
     setState({
       status: "error",
       error: e instanceof Error ? e.message : String(e),

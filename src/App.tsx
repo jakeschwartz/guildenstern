@@ -24,6 +24,7 @@ export const App = () => {
   const session = useSession();
   useHydrateFromSession(session);
   const status = useStore((s) => s.status);
+  const errorMsg = useStore((s) => s.error);
   const currentUserId = useStore((s) => s.currentUserId);
   const personalThreadId = useStore(
     (s) =>
@@ -57,6 +58,11 @@ export const App = () => {
       <Frame>
         <div className="h-full w-full flex flex-col items-center justify-center px-6 text-center gap-3">
           <div className="text-[13px] text-attention">Something went wrong</div>
+          {errorMsg && (
+            <pre className="text-[11px] text-muted whitespace-pre-wrap max-w-full overflow-auto">
+              {errorMsg}
+            </pre>
+          )}
           <button
             onClick={() => signOut()}
             className="text-[12.5px] text-muted underline"

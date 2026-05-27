@@ -151,14 +151,18 @@ export async function getThreadsForPartnership(
 export async function getOrCreatePersonalThread(): Promise<ThreadRow> {
   const user = (await supabase.auth.getUser()).data.user;
   if (!user) throw new Error("Not authenticated");
-  const { data: existing, error: readErr } = await supabase
+  // Read first. limit(1) defensively in case any legacy duplicates exist.
+  const { data: rows, error: readErr } = await supabase
     .from("threads")
     .select("*")
     .eq("kind", "personal")
     .eq("owner_id", user.id)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(1);
   if (readErr) throw readErr;
-  if (existing) return existing as ThreadRow;
+  if (rows && rows.length > 0) return rows[0] as ThreadRow;
+  // Try to insert. If the partial unique index trips (race with another
+  // concurrent hydrate), swallow the error and re-read.
   const { data: created, error: createErr } = await supabase
     .from("threads")
     .insert({
@@ -169,8 +173,20 @@ export async function getOrCreatePersonalThread(): Promise<ThreadRow> {
     })
     .select("*")
     .single();
-  if (createErr) throw createErr;
-  return created as ThreadRow;
+  if (created) return created as ThreadRow;
+  if (createErr && createErr.code === "23505") {
+    // Unique-violation: someone else inserted between read and write. Re-read.
+    const { data: again } = await supabase
+      .from("threads")
+      .select("*")
+      .eq("kind", "personal")
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+    if (again) return again as ThreadRow;
+  }
+  throw createErr ?? new Error("Could not create personal thread");
 }
 
 export async function createPartnershipThread(

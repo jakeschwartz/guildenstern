@@ -1,0 +1,8 @@
+- [User profile](user_profile.md) — founder building Guildenstern solo via Claude Code; has a partner named Jenny; this is the personal pain point driving the partnership work.
+- [Collaboration style](feedback_collaboration_style.md) — how the user wants to iterate: design before code, sketches over completeness, color is state not identity.
+- [Catch over-rotation](feedback_catch_over_rotation.md) — user will course-correct when my abstractions go too far; treat their pushback as design data, not nitpicks.
+- [Tabled strategic threads](project_tabled_strategic_threads.md) — pricing tied to persistence, "could be separate apps", couples-counseling-at-scale. Held for later.
+- [Day-one session arc](project_day_one_session_arc.md) — what got built, in order, and the architectural insight that emerged across all of it.
+- [The spoke→shared primitive](project_spoke_shared_primitive.md) — the load-bearing structural pattern that appears in every thread kind. Worth not re-deriving.
+- [Open design questions](project_open_design_questions.md) — what's deliberately unresolved as of end-of-day-one.
+- [Personal use case Jenny bursts](project_jenny_burst_use_case.md) — the founder's stated pain point that drives the partnership/asymmetric-buffer design.

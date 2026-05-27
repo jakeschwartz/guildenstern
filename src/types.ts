@@ -53,6 +53,10 @@ export type Message = {
     title: string;
     items: BriefingItem[];
   };
+  // Messages sharing a foldGroupId render as one collapsed summary line.
+  // The message that carries foldSummary supplies the collapsed-state label.
+  foldGroupId?: string;
+  foldSummary?: string;
 };
 
 export type Spoke = {

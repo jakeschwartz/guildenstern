@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { BriefingCard } from "../components/BriefingCard";
-import type { BriefingItem, User } from "../types";
+import type { BriefingItem, Message, User } from "../types";
 
 type Props = {
   threadId: string;
@@ -13,6 +13,39 @@ type Props = {
 };
 
 const REVIEW_PROMPT_IDS = new Set(["ja-4"]);
+
+type RenderItem =
+  | { kind: "single"; message: Message }
+  | {
+      kind: "fold";
+      groupId: string;
+      summary: string;
+      messages: Message[];
+    };
+
+const groupMessages = (messages: Message[]): RenderItem[] => {
+  const items: RenderItem[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const m = messages[i]!;
+    if (!m.foldGroupId) {
+      items.push({ kind: "single", message: m });
+      i++;
+      continue;
+    }
+    // Collect consecutive messages sharing this foldGroupId.
+    const groupId = m.foldGroupId;
+    const group: Message[] = [];
+    while (i < messages.length && messages[i]!.foldGroupId === groupId) {
+      group.push(messages[i]!);
+      i++;
+    }
+    const summary =
+      group.find((g) => g.foldSummary)?.foldSummary ?? "Resolved";
+    items.push({ kind: "fold", groupId, summary, messages: group });
+  }
+  return items;
+};
 
 export const PersonalThread = ({
   threadId,
@@ -28,6 +61,9 @@ export const PersonalThread = ({
   const usersById = useMemo(
     () => new Map<string, User>(users.map((u) => [u.id, u])),
     [users],
+  );
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(),
   );
 
   if (!thread || thread.kind !== "personal") {
@@ -64,6 +100,16 @@ export const PersonalThread = ({
   }
 
   const me = usersById.get(currentUserId);
+  const items = groupMessages(thread.messages);
+
+  const toggleGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -87,7 +133,51 @@ export const PersonalThread = ({
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5">
-        {thread.messages.map((m) => {
+        {items.map((item) => {
+          if (item.kind === "fold") {
+            const isExpanded = expandedGroups.has(item.groupId);
+            return (
+              <div key={item.groupId} className="flex flex-col gap-3">
+                <button
+                  onClick={() => toggleGroup(item.groupId)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-rule bg-card/40 hover:bg-card transition-colors text-left"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-agent text-[12px] shrink-0">✓</span>
+                    <span className="text-[12.5px] text-muted truncate">
+                      {item.summary}
+                    </span>
+                  </span>
+                  <span className="text-muted text-[11px] shrink-0">
+                    {isExpanded ? "Hide" : "Expand"}
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div className="flex flex-col gap-4 pl-2 border-l-2 border-rule">
+                    {item.messages.map((m) => {
+                      const author =
+                        m.author.kind === "human"
+                          ? usersById.get(m.author.userId) ?? null
+                          : null;
+                      const isSelf =
+                        m.author.kind === "human" &&
+                        m.author.userId === currentUserId;
+                      return (
+                        <MessageBubble
+                          key={m.id}
+                          message={m}
+                          author={author}
+                          isSelf={isSelf}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          const m = item.message;
           const author =
             m.author.kind === "human"
               ? usersById.get(m.author.userId) ?? null
@@ -95,13 +185,13 @@ export const PersonalThread = ({
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
           const showReviewCTA = REVIEW_PROMPT_IDS.has(m.id);
-          const handleItemTap = (item: BriefingItem) => {
-            if (item.action === "review-new") {
+          const handleItemTap = (briefingItem: BriefingItem) => {
+            if (briefingItem.action === "review-new") {
               onReviewNew();
               return;
             }
-            if (item.threadId) {
-              onOpenThread(item.threadId);
+            if (briefingItem.threadId) {
+              onOpenThread(briefingItem.threadId);
             }
           };
           return (

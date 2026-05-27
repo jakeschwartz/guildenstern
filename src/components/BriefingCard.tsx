@@ -30,7 +30,6 @@ export const BriefingCard = ({ title, items, onTapItem }: Props) => (
     <ul>
       {items.map((item, i) => {
         const tone: BriefingTone = item.tone ?? "neutral";
-        const isAction = item.action !== undefined;
         return (
           <li key={i} className="border-b border-rule last:border-b-0">
             <button
@@ -38,11 +37,7 @@ export const BriefingCard = ({ title, items, onTapItem }: Props) => (
               className="w-full text-left px-4 py-3 hover:bg-card transition-colors flex flex-col gap-1"
             >
               <div className="flex items-baseline justify-between gap-3">
-                <span
-                  className={`text-[14px] font-semibold tracking-tight truncate ${
-                    isAction ? "text-ink" : "text-ink"
-                  }`}
-                >
+                <span className="text-[14px] font-semibold tracking-tight truncate text-ink">
                   {item.label}
                 </span>
                 <div className="flex items-center gap-2 shrink-0">

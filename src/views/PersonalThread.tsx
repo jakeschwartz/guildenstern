@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useStore } from "../state/store";
+import { sendMessage, useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { BriefingCard } from "../components/BriefingCard";
@@ -8,7 +8,9 @@ import type { BriefingItem, Message, User } from "../types";
 type Props = {
   threadId: string;
   onBack: () => void;
-  onReviewNew: () => void;
+  // onReviewNew kept in the prop shape to preserve App.tsx call sites; will
+  // re-enable once the relationship thread kind is back.
+  onReviewNew?: () => void;
   onOpenThread: (threadId: string) => void;
 };
 
@@ -48,7 +50,6 @@ const groupMessages = (messages: Message[]): RenderItem[] => {
 export const PersonalThread = ({
   threadId,
   onBack,
-  onReviewNew,
   onOpenThread,
 }: Props) => {
   const thread = useStore((s) =>
@@ -71,28 +72,6 @@ export const PersonalThread = ({
         <button onClick={onBack} className="underline">
           Back
         </button>
-      </div>
-    );
-  }
-
-  if (thread.ownerId !== currentUserId) {
-    const owner = usersById.get(thread.ownerId);
-    return (
-      <div className="flex flex-col h-full">
-        <header className="px-4 pt-12 pb-3 border-b border-rule flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="text-[14px] text-muted hover:text-ink shrink-0"
-          >
-            ←
-          </button>
-          <span className="text-[13px] text-muted">
-            This is {owner?.name ?? "—"}'s private channel with the agent.
-          </span>
-        </header>
-        <div className="flex-1 flex items-center justify-center px-8 text-center text-[13px] text-muted">
-          Switch to {owner?.name ?? "the owner"} in the corner to see it.
-        </div>
       </div>
     );
   }
@@ -183,10 +162,6 @@ export const PersonalThread = ({
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
           const handleItemTap = (briefingItem: BriefingItem) => {
-            if (briefingItem.action === "review-new") {
-              onReviewNew();
-              return;
-            }
             if (briefingItem.threadId) {
               onOpenThread(briefingItem.threadId);
             }
@@ -210,7 +185,7 @@ export const PersonalThread = ({
 
       <Composer
         onSend={(body) => {
-          console.log("personal msg", body);
+          if (body.trim()) sendMessage(thread.id, body);
         }}
         placeholder="What's on your mind?"
       />

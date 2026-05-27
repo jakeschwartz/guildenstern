@@ -1,246 +1,274 @@
+// Supabase-backed reactive store. Mirrors the shape the prototype components
+// expect (users, partnerships, threads, currentUserId) but the source of truth
+// is the Supabase database, not localStorage.
+//
+// Initial load fans out:
+//   - profile (me)
+//   - partnerships (mine)
+//   - profiles of partners
+//   - personal thread (auto-create if missing)
+//   - partnership threads
+//   - messages + ops cards for each thread
+//
+// Realtime subscriptions for messages and ops cards keep the cache fresh.
+
 import { useEffect, useSyncExternalStore } from "react";
+import type { Session } from "@supabase/supabase-js";
+import * as db from "../lib/db";
 import type {
   Message,
-  MessageId,
-  MutualIntent,
+  MessageAuthor,
+  OpsCard,
   Partnership,
-  RelationshipCard,
-  RelationshipThread,
+  PartnershipThread,
+  PersonalThread,
   Thread,
-  ThreadId,
   User,
-  UserId,
 } from "../types";
-import { seedPartnerships, seedThreads, seedUsers } from "./seed";
 
-const generateDraftBody = (
-  contact: RelationshipCard,
-  intents: MutualIntent[],
-): string => {
-  const firstName = contact.name.split(" ")[0];
-  const opening = `Hi ${firstName} — Jake asked me to follow up on the conversation you had at ${contact.metWhere}.`;
-  const bodies = intents
-    .filter((i) => i.status !== "expired")
-    .map((i) => i.body);
-  const lines: string[] = [];
-  if (bodies.includes("30-min call within 2 weeks")) {
-    lines.push(
-      `He'd love to set up a 30-min call in the next couple weeks — any time work for you?`,
-    );
-  }
-  if (bodies.includes("Trade notes async")) {
-    lines.push(
-      `He's also open to trading notes async if a call doesn't quite fit.`,
-    );
-  }
-  if (bodies.includes("Send them something")) {
-    lines.push(
-      `He mentioned wanting to send you something — I'll prompt him to dig it up and follow up shortly.`,
-    );
-  }
-  if (bodies.includes("Make an intro")) {
-    lines.push(
-      `He's thinking about an intro and will follow up when he's lined up the details.`,
-    );
-  }
-  if (bodies.includes("Stay in touch")) {
-    lines.push(`He wanted to make sure you stay on his radar.`);
-  }
-  const body =
-    lines.length > 0
-      ? lines.join("\n\n")
-      : `He wanted me to make sure you have a way to reach him.`;
-  return `${opening}\n\n${body}\n\n— Jake's agent`;
-};
+type Status = "idle" | "loading" | "ready" | "no_partnership" | "error";
 
 type State = {
+  status: Status;
+  error: string | null;
+  currentUserId: string;
   users: User[];
   partnerships: Partnership[];
   threads: Thread[];
-  currentUserId: UserId;
 };
 
-const STORAGE_KEY = "guildenstern:v10";
-
-const load = (): State => {
-  if (typeof window === "undefined") return fresh();
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fresh();
-    const parsed = JSON.parse(raw) as State;
-    if (!parsed.users || !parsed.threads || !parsed.partnerships)
-      return fresh();
-    return parsed;
-  } catch {
-    return fresh();
-  }
+const initial: State = {
+  status: "idle",
+  error: null,
+  currentUserId: "",
+  users: [],
+  partnerships: [],
+  threads: [],
 };
 
-const fresh = (): State => ({
-  users: seedUsers,
-  partnerships: seedPartnerships,
-  threads: seedThreads,
-  currentUserId: "jake",
-});
-
-let state: State = load();
+let state: State = initial;
 const listeners = new Set<() => void>();
 
 const emit = () => {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }
   listeners.forEach((l) => l());
 };
 
-export const getState = () => state;
+const setState = (patch: Partial<State>) => {
+  state = { ...state, ...patch };
+  emit();
+};
 
+export const getState = () => state;
 export const subscribe = (l: () => void) => {
   listeners.add(l);
-  return () => {
-    listeners.delete(l);
+  return () => listeners.delete(l);
+};
+
+// ---------- mapping helpers ----------
+
+const profileToUser = (p: db.Profile): User => ({
+  id: p.id,
+  name: p.name,
+  initials: p.initials,
+});
+
+const messageRowToMessage = (row: db.MessageRow): Message => {
+  const author: MessageAuthor =
+    row.author_kind === "human"
+      ? { kind: "human", userId: row.author_user_id! }
+      : { kind: "agent" };
+  const briefing =
+    row.briefing && typeof row.briefing === "object"
+      ? (row.briefing as Message["briefing"])
+      : undefined;
+  return {
+    id: row.id,
+    author,
+    body: row.body,
+    createdAt: new Date(row.created_at).getTime(),
+    briefing,
+    foldGroupId: row.fold_group_id ?? undefined,
+    foldSummary: row.fold_summary ?? undefined,
   };
 };
 
-export const setCurrentUser = (id: UserId) => {
-  state = { ...state, currentUserId: id };
+const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
+  id: row.id,
+  title: row.title,
+  subtitle: row.subtitle ?? undefined,
+  owner: row.owner_id,
+  when: row.when_label,
+  bucket: row.bucket,
+  status: row.status,
+  sourceMessageId: row.source_message_id ?? "",
+  sourceUserId: row.source_user_id ?? "",
+  createdAt: new Date(row.created_at).getTime(),
+});
+
+// ---------- hydration ----------
+
+const realtimeUnsubs: Array<() => void> = [];
+
+const teardownRealtime = () => {
+  while (realtimeUnsubs.length) {
+    realtimeUnsubs.pop()?.();
+  }
+};
+
+const subscribeThread = (threadId: string) => {
+  realtimeUnsubs.push(
+    db.subscribeToThreadMessages(threadId, (row) => {
+      const msg = messageRowToMessage(row);
+      const threads = state.threads.map((t) => {
+        if (t.id !== threadId) return t;
+        if (t.messages.some((m) => m.id === msg.id)) return t;
+        return { ...t, messages: [...t.messages, msg] };
+      });
+      setState({ threads });
+    }),
+  );
+};
+
+export const hydrate = async (session: Session) => {
+  setState({
+    status: "loading",
+    error: null,
+    currentUserId: session.user.id,
+    users: [],
+    partnerships: [],
+    threads: [],
+  });
+  teardownRealtime();
+
+  try {
+    const me = await db.getProfile(session.user.id);
+    if (!me) throw new Error("Profile not found");
+
+    const partnerships = await db.getMyPartnerships();
+    const personal = await db.getOrCreatePersonalThread();
+
+    // Map db's Partnership rows to our shape (participantIds tuple).
+    const partnershipShapes: Partnership[] = [];
+    const partnerProfiles: User[] = [];
+    for (const p of partnerships) {
+      const members = await db.getPartnershipMembers(p.id);
+      const partner = members.find((m) => m.id !== session.user.id);
+      // It's possible the partnership only has me (invited but not redeemed).
+      partnershipShapes.push({
+        id: p.id,
+        participantIds: [session.user.id, partner?.id ?? session.user.id],
+      });
+      if (partner) partnerProfiles.push(profileToUser(partner));
+    }
+
+    // Load personal thread messages.
+    const personalMsgs = await db.getMessages(personal.id);
+    const personalThread: PersonalThread = {
+      kind: "personal",
+      id: personal.id,
+      ownerId: session.user.id,
+      messages: personalMsgs.map(messageRowToMessage),
+      agentActive: personal.agent_active,
+      createdAt: new Date(personal.created_at).getTime(),
+    };
+    subscribeThread(personal.id);
+
+    // Load partnership threads (and create a default one if missing).
+    const partnershipThreads: PartnershipThread[] = [];
+    for (const p of partnerships) {
+      let rows = await db.getThreadsForPartnership(p.id);
+      if (rows.length === 0) {
+        const created = await db.createPartnershipThread(p.id, "Default", true);
+        rows = [created];
+      }
+      for (const r of rows) {
+        const [msgs, cards] = await Promise.all([
+          db.getMessages(r.id),
+          db.getOpsCards(r.id),
+        ]);
+        partnershipThreads.push({
+          kind: "partnership",
+          id: r.id,
+          partnershipId: r.partnership_id!,
+          title: r.title,
+          isDefault: r.is_default,
+          messages: msgs.map(messageRowToMessage),
+          opsCards: cards.map(opsCardRowToOpsCard),
+          agentActive: r.agent_active,
+          createdAt: new Date(r.created_at).getTime(),
+        });
+        subscribeThread(r.id);
+      }
+    }
+
+    setState({
+      status: partnerships.length === 0 ? "no_partnership" : "ready",
+      currentUserId: session.user.id,
+      users: [profileToUser(me), ...partnerProfiles],
+      partnerships: partnershipShapes,
+      threads: [personalThread, ...partnershipThreads],
+    });
+  } catch (e) {
+    setState({
+      status: "error",
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+};
+
+export const reset = () => {
+  teardownRealtime();
+  state = initial;
   emit();
 };
 
-export const resetState = () => {
-  state = fresh();
-  emit();
-};
+// ---------- mutations ----------
 
-export const createRelationshipThread = (
-  hostId: UserId,
-  contact: RelationshipCard,
-): ThreadId => {
-  const id: ThreadId = `rel-${contact.name.toLowerCase().replace(/[^a-z]+/g, "-")}-${Date.now()}`;
-  const now = Date.now();
-  const firstName = contact.name.split(" ")[0];
-  const welcome = {
-    id: `${id}-welcome`,
-    author: { kind: "agent" as const },
-    body: `Just connected with ${firstName} at ${contact.metWhere}. Quick — anything you want me to remember about them, or what you talked about? Or skip; I can draft a polite note from just the basics.`,
-    createdAt: now,
-  };
-  const thread: RelationshipThread = {
-    kind: "relationship",
-    id,
-    hostId,
-    contact,
-    intents: [],
-    privateWithAgent: [welcome],
-    outbound: [],
-    agentActive: true,
-    createdAt: now,
-  };
-  state = { ...state, threads: [thread, ...state.threads] };
-  emit();
-  return id;
-};
-
-const ACK_FOR_CHIP: Record<string, string> = {
-  "30-min call within 2 weeks":
-    "Got it — 30-min call within 2 weeks. I'll work that into the outbound draft.",
-  "Trade notes async":
-    "Got it — trade notes async. I'll keep it lightweight in the draft.",
-  "Send them something":
-    "Got it — send something. What do you want me to attach or reference?",
-  "Make an intro":
-    "Got it — make an intro. Who's on the other end? I'll line it up.",
-  "Stay in touch":
-    "Got it — stay in touch. I'll resurface them in a month if nothing happens before then.",
-};
-
-const upsertDraft = (
-  thread: RelationshipThread,
-): RelationshipThread => {
-  const draftId = `draft-${thread.id}`;
-  const body = generateDraftBody(thread.contact, thread.intents);
-  const draftMsg: Message = {
-    id: draftId,
-    author: { kind: "agent" },
+export const sendMessage = async (threadId: string, body: string) => {
+  // Optimistic: append locally; realtime will reconcile the canonical row.
+  const optimistic: Message = {
+    id: `optimistic-${Date.now()}`,
+    author: { kind: "human", userId: state.currentUserId },
     body,
     createdAt: Date.now(),
-    draft: true,
   };
-  const existingIdx = thread.outbound.findIndex(
-    (m) => m.draft && m.id === draftId,
+  const threads = state.threads.map((t) =>
+    t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
   );
-  let newOutbound: Message[];
-  if (existingIdx >= 0) {
-    newOutbound = [...thread.outbound];
-    newOutbound[existingIdx] = draftMsg;
-  } else {
-    newOutbound = [...thread.outbound, draftMsg];
+  setState({ threads });
+  try {
+    await db.sendMessage(threadId, body);
+  } catch (e) {
+    // Roll back the optimistic add on failure.
+    const rolled = state.threads.map((t) =>
+      t.id === threadId
+        ? { ...t, messages: t.messages.filter((m) => m.id !== optimistic.id) }
+        : t,
+    );
+    setState({ threads: rolled, error: e instanceof Error ? e.message : String(e) });
   }
-  return { ...thread, outbound: newOutbound };
 };
 
-export const proposeDraftForThread = (threadId: ThreadId) => {
-  state = {
-    ...state,
-    threads: state.threads.map((t) => {
-      if (t.id !== threadId) return t;
-      if (t.kind !== "relationship") return t;
-      return upsertDraft(t);
-    }),
-  };
-  emit();
+export const createMyPartnership = async (): Promise<string> => {
+  const partnershipId = await db.createPartnership();
+  // Caller is responsible for triggering a rehydrate or follow-up; for our
+  // onboarding flow we'll createInvite right after.
+  return partnershipId;
 };
 
-export const sendDraft = (threadId: ThreadId, messageId: MessageId) => {
-  const now = Date.now();
-  state = {
-    ...state,
-    threads: state.threads.map((t) => {
-      if (t.id !== threadId) return t;
-      if (t.kind !== "relationship") return t;
-      return {
-        ...t,
-        outbound: t.outbound.map((m) =>
-          m.id === messageId
-            ? { ...m, draft: false, createdAt: now }
-            : m,
-        ),
-      };
-    }),
-  };
-  emit();
+export const createInviteForPartnership = async (
+  partnershipId: string,
+): Promise<string> => {
+  const invite = await db.createInvite(partnershipId);
+  return invite.code;
 };
 
-export const addIntentFromChip = (threadId: ThreadId, body: string) => {
-  const now = Date.now();
-  const newIntent: MutualIntent = {
-    id: `intent-${threadId}-${now}`,
-    body,
-    proposedAt: now,
-    status: "awaiting-them",
-  };
-  const ack = ACK_FOR_CHIP[body] ?? `Got it — ${body}.`;
-  const ackMsg: Message = {
-    id: `msg-${threadId}-${now}`,
-    author: { kind: "agent" },
-    body: ack,
-    createdAt: now,
-  };
-  state = {
-    ...state,
-    threads: state.threads.map((t) => {
-      if (t.id !== threadId) return t;
-      if (t.kind !== "relationship") return t;
-      const withIntent: RelationshipThread = {
-        ...t,
-        intents: [...t.intents, newIntent],
-        privateWithAgent: [...t.privateWithAgent, ackMsg],
-      };
-      return upsertDraft(withIntent);
-    }),
-  };
-  emit();
+export const redeemInviteCode = async (code: string): Promise<string> => {
+  const partnershipId = await db.redeemInvite(code);
+  return partnershipId;
 };
+
+// ---------- React glue ----------
 
 export const useStore = <T,>(selector: (s: State) => T): T =>
   useSyncExternalStore(
@@ -249,9 +277,18 @@ export const useStore = <T,>(selector: (s: State) => T): T =>
     () => selector(state),
   );
 
-export const useHydratedReset = () => {
+// Listens to auth state changes and triggers hydration / reset.
+export const useHydrateFromSession = (session: Session | null | "loading") => {
   useEffect(() => {
-    // Surface reset for the dev console.
-    (window as unknown as { __reset?: () => void }).__reset = resetState;
-  }, []);
+    if (session === "loading") return;
+    if (session === null) {
+      reset();
+      return;
+    }
+    hydrate(session);
+    return () => {
+      // Don't reset on unmount — the session is still valid; just unsub realtime
+      // on the next hydrate or signout.
+    };
+  }, [session]);
 };

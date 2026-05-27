@@ -1,5 +1,5 @@
 import { useStore } from "../state/store";
-import type { PersonalThread, Thread, User } from "../types";
+import type { PartnershipThread, PersonalThread, User } from "../types";
 import { formatRelative } from "../lib/time";
 
 type Props = {
@@ -7,56 +7,20 @@ type Props = {
   onBack: () => void;
 };
 
-const lastActivity = (t: Thread): number => {
-  if (t.kind === "group") {
-    const m = t.messages[t.messages.length - 1];
-    return m?.createdAt ?? t.createdAt;
-  }
-  if (t.kind === "relationship") {
-    const all = [...t.privateWithAgent, ...t.outbound];
-    return all.length ? Math.max(...all.map((m) => m.createdAt)) : t.createdAt;
-  }
-  if (t.kind === "partnership") {
-    const m = t.messages[t.messages.length - 1];
-    return m?.createdAt ?? t.createdAt;
-  }
-  if (t.kind === "personal") {
-    const m = t.messages[t.messages.length - 1];
-    return m?.createdAt ?? t.createdAt;
-  }
-  // arbitration
+const lastActivity = (t: PartnershipThread | PersonalThread): number => {
   const m = t.messages[t.messages.length - 1];
   return m?.createdAt ?? t.createdAt;
 };
 
-const previewText = (t: Thread, usersById: Map<string, User>): string => {
-  if (t.kind === "group") {
-    const m = t.messages[t.messages.length - 1];
-    if (!m) return "";
-    if (m.author.kind === "agent") return m.body;
-    if (m.author.kind === "external") return `${m.author.name}: ${m.body}`;
-    const name = usersById.get(m.author.userId)?.name ?? "—";
-    return `${name}: ${m.body}`;
-  }
-  if (t.kind === "relationship") {
-    return `${t.contact.role} · ${t.contact.company}`;
-  }
-  if (t.kind === "partnership") {
-    const m = t.messages[t.messages.length - 1];
-    if (!m) return "Quiet";
-    if (m.author.kind === "agent") return m.body.split("\n")[0]!;
-    if (m.author.kind === "external") return `${m.author.name}: ${m.body}`;
-    const name = usersById.get(m.author.userId)?.name ?? "—";
-    return `${name}: ${m.body}`;
-  }
-  if (t.kind === "personal") {
-    const m = t.messages[t.messages.length - 1];
-    if (!m) return "Quiet";
-    if (m.author.kind === "agent") return m.body.split("\n")[0]!;
-    return m.body;
-  }
-  // arbitration
-  return t.question;
+const previewText = (
+  t: PartnershipThread | PersonalThread,
+  usersById: Map<string, User>,
+): string => {
+  const m = t.messages[t.messages.length - 1];
+  if (!m) return t.kind === "personal" ? "Quiet" : "Quiet";
+  if (m.author.kind === "agent") return m.body.split("\n")[0]!;
+  const name = usersById.get(m.author.userId)?.name ?? "—";
+  return `${name}: ${m.body}`;
 };
 
 export const ThreadList = ({ onOpen, onBack }: Props) => {
@@ -76,21 +40,14 @@ export const ThreadList = ({ onOpen, onBack }: Props) => {
     return usersById.get(partnerId)?.name ?? null;
   };
 
-  // Personal thread for the current user — pinned at top, always visible.
   const personalThread = threads.find(
     (t): t is PersonalThread =>
       t.kind === "personal" && t.ownerId === currentUserId,
   );
 
-  const otherThreads = threads.filter(
-    (t) => !(t.kind === "personal" && t.ownerId === currentUserId),
-  );
-  // Hide other users' personal threads from this user's list.
-  const visibleOthers = otherThreads.filter((t) => t.kind !== "personal");
-
-  const sorted = [...visibleOthers].sort(
-    (a, b) => lastActivity(b) - lastActivity(a),
-  );
+  const partnershipThreads = threads
+    .filter((t): t is PartnershipThread => t.kind === "partnership")
+    .sort((a, b) => lastActivity(b) - lastActivity(a));
 
   return (
     <div className="flex flex-col h-full">
@@ -114,20 +71,23 @@ export const ThreadList = ({ onOpen, onBack }: Props) => {
             onOpen={() => onOpen(personalThread.id)}
           />
         )}
-        {sorted.map((t) => (
-          <Row
+        {partnershipThreads.map((t) => (
+          <PartnershipRow
             key={t.id}
             thread={t}
             currentUserId={currentUserId}
-            usersById={usersById}
-            partnerNameFor={partnerNameFor}
+            partnerName={partnerNameFor(t.partnershipId)}
             preview={previewText(t, usersById)}
             timestamp={formatRelative(lastActivity(t))}
             onOpen={() => onOpen(t.id)}
           />
         ))}
+        {partnershipThreads.length === 0 && (
+          <div className="px-5 py-10 text-center text-[12.5px] text-muted">
+            No partnerships yet.
+          </div>
+        )}
       </div>
-
     </div>
   );
 };
@@ -162,157 +122,43 @@ const AgentRow = ({ thread, preview, timestamp, onOpen }: AgentRowProps) => {
   );
 };
 
-type RowProps = {
-  thread: Thread;
+type PartnershipRowProps = {
+  thread: PartnershipThread;
   currentUserId: string;
-  usersById: Map<string, User>;
-  partnerNameFor: (partnershipId: string) => string | null;
+  partnerName: string | null;
   preview: string;
   timestamp: string;
   onOpen: () => void;
 };
 
-const Row = ({
+const PartnershipRow = ({
   thread,
   currentUserId,
-  usersById,
-  partnerNameFor,
+  partnerName,
   preview,
   timestamp,
   onOpen,
-}: RowProps) => {
-  let title = "";
-  let partnerSuffix: string | null = null;
-  let topMembers: React.ReactNode = null;
-  let status: React.ReactNode = null;
-  let awaiting = false;
-  let tone: "default" | "deliberation" = "default";
-
-  if (thread.kind === "group") {
-    title = thread.title;
-    awaiting = Boolean(thread.spokes[currentUserId]?.awaitingMember);
-    const members = thread.memberIds
-      .map((id) => usersById.get(id))
-      .filter((u): u is User => Boolean(u));
-    topMembers = (
-      <div className="text-[10.5px] tracking-wide text-muted mb-0.5 flex items-center gap-2">
-        <span>{members.map((u) => u.initials).join("  ")}</span>
-        {thread.agentActive && (
-          <span className="ml-auto flex items-center gap-1.5 text-agent">
-            <span className="h-1.5 w-1.5 rounded-full bg-agent" />
-            Agent
-          </span>
-        )}
-      </div>
-    );
-  } else if (thread.kind === "relationship") {
-    title = thread.contact.name;
-    awaiting = thread.intents.some((i) => i.status === "awaiting-you");
-    const ratified = thread.intents.filter(
-      (i) => i.status === "ratified",
-    ).length;
-    const pending = thread.intents.filter(
-      (i) => i.status !== "ratified" && i.status !== "expired",
-    ).length;
-    status = (
-      <div className="mt-2 flex items-center gap-3 text-[11px]">
-        {ratified === 0 && pending === 0 && (
-          <span className="flex items-center gap-1.5 text-agent">
-            <span className="h-1.5 w-1.5 rounded-full bg-agent" />
-            Just connected
-          </span>
-        )}
-        {ratified > 0 && (
-          <span className="flex items-center gap-1.5 text-agent">
-            <span className="h-1.5 w-1.5 rounded-full bg-agent" />
-            {ratified} ratified
-          </span>
-        )}
-        {pending > 0 && (
-          <span className="flex items-center gap-1.5 text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-            {pending} pending
-          </span>
-        )}
-        {thread.agentActive && (
-          <span className="ml-auto text-agent">Agent</span>
-        )}
-      </div>
-    );
-  } else if (thread.kind === "partnership") {
-    const partnerName = partnerNameFor(thread.partnershipId);
-    if (thread.isDefault) {
-      // Catch-all thread — render as just the partner's name, no suffix.
-      title = partnerName ?? thread.title;
-    } else {
-      title = thread.title;
-      partnerSuffix = partnerName;
-    }
-    const yours = thread.opsCards.filter(
-      (c) => c.status === "pending" && c.owner === currentUserId,
-    ).length;
-    const theirs = thread.opsCards.filter(
-      (c) => c.status === "pending" && c.owner !== currentUserId,
-    ).length;
-    awaiting = yours > 0;
-    const partnerFirstName = partnerName?.split(" ")[0] ?? "them";
-    if (yours > 0 || theirs > 0) {
-      status = (
-        <div className="mt-2 flex items-center gap-3 text-[11px]">
-          {yours > 0 && (
-            <span className="flex items-center gap-1.5 text-attention">
-              <span className="h-1.5 w-1.5 rounded-full bg-attention" />
-              {yours} on you
-            </span>
-          )}
-          {theirs > 0 && (
-            <span className="flex items-center gap-1.5 text-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-              {theirs} on {partnerFirstName}
-            </span>
-          )}
-        </div>
-      );
-    }
-  } else if (thread.kind === "arbitration") {
-    title = thread.question;
-    partnerSuffix = partnerNameFor(thread.partnershipId);
-    const decidedLabel = thread.decision
-      ? thread.options.find((o) => o.id === thread.decision?.optionId)?.label
-      : null;
-    if (!decidedLabel) tone = "deliberation";
-    status = (
-      <div className="mt-2 flex items-center gap-3 text-[11px]">
-        {decidedLabel ? (
-          <span className="flex items-center gap-1.5 text-agent">
-            <span className="h-1.5 w-1.5 rounded-full bg-agent" />
-            Decided · {decidedLabel}
-          </span>
-        ) : (
-          <span className="flex items-center gap-1.5 text-deliberation">
-            <span className="h-1.5 w-1.5 rounded-full bg-deliberation" />
-            {thread.positions.length} positions · {thread.options.length}{" "}
-            options
-          </span>
-        )}
-      </div>
-    );
-  } else {
-    return null;
-  }
+}: PartnershipRowProps) => {
+  const title = thread.isDefault ? partnerName ?? thread.title : thread.title;
+  const partnerSuffix = thread.isDefault ? null : partnerName;
+  const yours = thread.opsCards.filter(
+    (c) => c.status === "pending" && c.owner === currentUserId,
+  ).length;
+  const theirs = thread.opsCards.filter(
+    (c) => c.status === "pending" && c.owner !== currentUserId,
+  ).length;
+  const awaiting = yours > 0;
+  const partnerFirstName = partnerName?.split(" ")[0] ?? "them";
 
   const edgeClass = awaiting
     ? "border-l-2 border-l-attention bg-attention-tint"
-    : tone === "deliberation"
-      ? "border-l-2 border-l-deliberation"
-      : "border-l-2 border-l-transparent";
+    : "border-l-2 border-l-transparent";
 
   return (
     <button
       onClick={onOpen}
       className={`w-full text-left pl-[18px] pr-5 py-3 border-b border-rule hover:bg-card/60 transition-colors ${edgeClass}`}
     >
-      {topMembers}
       <div className="flex items-baseline justify-between gap-3">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-[16px] font-semibold tracking-tight text-ink truncate">
@@ -329,7 +175,22 @@ const Row = ({
       <div className="mt-0.5 text-[12.5px] text-muted line-clamp-1">
         {preview}
       </div>
-      {status}
+      {(yours > 0 || theirs > 0) && (
+        <div className="mt-2 flex items-center gap-3 text-[11px]">
+          {yours > 0 && (
+            <span className="flex items-center gap-1.5 text-attention">
+              <span className="h-1.5 w-1.5 rounded-full bg-attention" />
+              {yours} on you
+            </span>
+          )}
+          {theirs > 0 && (
+            <span className="flex items-center gap-1.5 text-muted">
+              <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+              {theirs} on {partnerFirstName}
+            </span>
+          )}
+        </div>
+      )}
     </button>
   );
 };

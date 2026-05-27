@@ -25,27 +25,6 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
     );
   }
 
-  if (message.author.kind === "external") {
-    return (
-      <div className="flex flex-col gap-1 max-w-[92%]">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-[12px] font-semibold text-ink">
-            {message.author.name}
-          </span>
-          <span className="text-[11px] text-muted">
-            via {message.author.via}
-          </span>
-          <span className="text-[11px] text-muted">
-            {formatClock(message.createdAt)}
-          </span>
-        </div>
-        <div className="text-[14.5px] leading-snug text-ink">
-          {message.body}
-        </div>
-      </div>
-    );
-  }
-
   const name = author?.name ?? "Unknown";
 
   if (isSelf) {

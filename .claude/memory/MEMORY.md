@@ -8,3 +8,4 @@
 - [Personal use case Jenny bursts](project_jenny_burst_use_case.md) — the founder's stated pain point that drives the partnership/asymmetric-buffer design.
 - [Onboarding vs daily use](feedback_onboarding_vs_daily_use.md) — two surfaces with different success criteria; per-relationship onboarding is structurally important and earns disproportionate craft.
 - [Commit cadence](project_commit_cadence.md) — commit at the end of each meaningful chunk; push immediately after; founder works across machines.
+- [In-flight: fold resolved threads](project_in_flight_resolved_fold.md) — founder flagged daily-use feels busy; pick up here next session — hide resolved threads into summary data.

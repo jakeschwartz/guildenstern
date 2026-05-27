@@ -85,6 +85,13 @@ export const seedThreads: Thread[] = [
               threadId: "jj-arb-contractor",
             },
             {
+              label: "4 new contacts",
+              detail: "Walk through them so I can draft follow-ups",
+              status: "to review",
+              tone: "attention",
+              action: "review-new",
+            },
+            {
               label: "Anna Chen",
               detail: "Call confirmed",
               status: "Thu 10:30",
@@ -116,12 +123,6 @@ export const seedThreads: Thread[] = [
         body: "Set for Friday morning. I'll ping you at 9.",
         createdAt: hr(0.39),
         foldGroupId: "ja-dad-reminder",
-      },
-      {
-        id: "ja-4",
-        author: { kind: "agent" },
-        body: "Also — you added 4 new contacts today (Priya, Marcus, Jen, David). Want to walk through them so I can draft follow-ups? Takes a minute.",
-        createdAt: hr(0.1),
       },
     ],
   },

@@ -12,8 +12,6 @@ type Props = {
   onOpenThread: (threadId: string) => void;
 };
 
-const REVIEW_PROMPT_IDS = new Set(["ja-4"]);
-
 type RenderItem =
   | { kind: "single"; message: Message }
   | {
@@ -184,7 +182,6 @@ export const PersonalThread = ({
               : null;
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
-          const showReviewCTA = REVIEW_PROMPT_IDS.has(m.id);
           const handleItemTap = (briefingItem: BriefingItem) => {
             if (briefingItem.action === "review-new") {
               onReviewNew();
@@ -205,16 +202,6 @@ export const PersonalThread = ({
               )}
               {m.body && (
                 <MessageBubble message={m} author={author} isSelf={isSelf} />
-              )}
-              {showReviewCTA && (
-                <div className="pl-3.5">
-                  <button
-                    onClick={onReviewNew}
-                    className="h-10 px-4 rounded-full bg-agent text-paper text-[13px] font-semibold hover:opacity-90 transition-opacity"
-                  >
-                    Walk through them →
-                  </button>
-                </div>
               )}
             </div>
           );

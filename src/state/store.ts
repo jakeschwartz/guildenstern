@@ -127,7 +127,24 @@ const subscribeThread = (threadId: string) => {
       const msg = messageRowToMessage(row);
       const threads = state.threads.map((t) => {
         if (t.id !== threadId) return t;
+        // Already have the canonical row? Skip.
         if (t.messages.some((m) => m.id === msg.id)) return t;
+        // If there's a matching optimistic row (same author + body), replace
+        // it with the canonical. Otherwise the user sees their own message twice.
+        const optimisticIdx = t.messages.findIndex(
+          (m) =>
+            m.id.startsWith("optimistic-") &&
+            m.body === msg.body &&
+            m.author.kind === msg.author.kind &&
+            (msg.author.kind === "human" && m.author.kind === "human"
+              ? m.author.userId === msg.author.userId
+              : true),
+        );
+        if (optimisticIdx >= 0) {
+          const replaced = [...t.messages];
+          replaced[optimisticIdx] = msg;
+          return { ...t, messages: replaced };
+        }
         return { ...t, messages: [...t.messages, msg] };
       });
       setState({ threads });

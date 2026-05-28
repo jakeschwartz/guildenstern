@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PhoneFrame } from "./components/PhoneFrame";
 import { Sheet } from "./components/Sheet";
 import { ThreadList } from "./views/ThreadList";
@@ -8,6 +8,7 @@ import { Login } from "./views/Login";
 import { Onboarding } from "./views/Onboarding";
 import { useStore, useHydrateFromSession } from "./state/store";
 import { useSession, signOut } from "./lib/auth";
+import { registerPushIfNative } from "./lib/push";
 
 type Route =
   | { name: "home" }
@@ -23,6 +24,11 @@ const Frame = ({ children }: { children: React.ReactNode }) => (
 export const App = () => {
   const session = useSession();
   useHydrateFromSession(session);
+  useEffect(() => {
+    if (session && session !== "loading") {
+      registerPushIfNative();
+    }
+  }, [session]);
   const status = useStore((s) => s.status);
   const errorMsg = useStore((s) => s.error);
   const currentUserId = useStore((s) => s.currentUserId);

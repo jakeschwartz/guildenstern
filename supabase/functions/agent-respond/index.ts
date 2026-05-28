@@ -78,15 +78,16 @@ Deno.serve(async (req) => {
     return new Response("skipped", { status: 200 });
   }
 
-  // Confirm the thread is a partnership thread; personal threads we leave
-  // alone for now.
+  // Verify the thread exists. Agent runs in both partnership and personal
+  // threads: same burst-classifier semantics (echo trackable items, stay
+  // silent on direct/emotional messages).
   const { data: thread, error: tErr } = await supabase
     .from("threads")
-    .select("id, kind, partnership_id")
+    .select("id, kind, partnership_id, owner_id")
     .eq("id", msg.thread_id)
     .single();
-  if (tErr || !thread || thread.kind !== "partnership") {
-    return new Response("not a partnership thread", { status: 200 });
+  if (tErr || !thread) {
+    return new Response("thread not found", { status: 200 });
   }
 
   // Pull recent context (the last 10 messages) so Claude can disambiguate.

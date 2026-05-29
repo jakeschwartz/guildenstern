@@ -15,3 +15,7 @@ vite.config.js
 
 # Supabase CLI working dir
 supabase/.temp/
+
+# iOS build artifacts (from scripts/deploy-device.sh)
+/build/
+

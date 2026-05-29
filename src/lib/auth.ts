@@ -35,18 +35,25 @@ export const useSession = (): Session | null | "loading" => {
 export async function signInWithApple(): Promise<void> {
   if (Capacitor.isNativePlatform()) {
     // Native iOS path: Apple's sheet, identity token, hand to Supabase.
+    // The nonce flow: we generate a raw nonce, pass it to Apple (the plugin
+    // sends it as-is, Apple SHA-256 hashes it before embedding in the id_token).
+    // We must hand the SAME raw nonce back to Supabase so it can re-hash and
+    // verify against the token's nonce claim. Mismatched → "Passed nonce and
+    // nonce in id_token should either both exist or not."
+    const rawNonce = crypto.randomUUID();
     const res = await SignInWithApple.authorize({
       clientId: APPLE_BUNDLE_ID,
       redirectURI: SUPABASE_CALLBACK,
       scopes: "email name",
       state: "init",
-      nonce: crypto.randomUUID(),
+      nonce: rawNonce,
     });
     const idToken = res.response.identityToken;
     if (!idToken) throw new Error("Apple returned no identity token");
     const { error } = await supabase.auth.signInWithIdToken({
       provider: "apple",
       token: idToken,
+      nonce: rawNonce,
     });
     if (error) throw error;
     return;

@@ -13,15 +13,20 @@ export async function initKeyboardIfNative() {
     await Keyboard.setAccessoryBarVisible({ isVisible: false });
 
     const root = document.documentElement;
+    // Cache the static safe-area-inset-bottom value so we can restore it
+    // when the keyboard hides. lib/safe-area writes the initial value.
+    let cachedBottom = root.style.getPropertyValue("--safe-b") || "0px";
     const setHeight = (px: number) => {
       root.style.setProperty("--kbd-h", `${px}px`);
       // When the keyboard is up, the home-indicator safe-area inset shouldn't
-      // also push the composer up (the keyboard IS the bottom). Toggle a
-      // separate var that PhoneFrame uses for paddingBottom.
-      root.style.setProperty(
-        "--safe-b",
-        px > 0 ? "0px" : "env(safe-area-inset-bottom)",
-      );
+      // also push the composer up (the keyboard IS the bottom).
+      if (px > 0) {
+        cachedBottom =
+          root.style.getPropertyValue("--safe-b") || cachedBottom;
+        root.style.setProperty("--safe-b", "0px");
+      } else {
+        root.style.setProperty("--safe-b", cachedBottom);
+      }
     };
     setHeight(0);
 

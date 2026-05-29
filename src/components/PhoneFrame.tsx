@@ -24,10 +24,10 @@ export const PhoneFrame = ({ children }: Props) => {
         className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
         style={{
           height: `calc(100dvh - var(--kbd-h, 0px))`,
-          paddingTop: "env(safe-area-inset-top)",
-          paddingBottom: "var(--safe-b, env(safe-area-inset-bottom))",
-          paddingLeft: "env(safe-area-inset-left)",
-          paddingRight: "env(safe-area-inset-right)",
+          paddingTop: "var(--safe-t, 0px)",
+          paddingBottom: "var(--safe-b, 0px)",
+          paddingLeft: "var(--safe-l, 0px)",
+          paddingRight: "var(--safe-r, 0px)",
           transition: "height 0.25s ease, padding-bottom 0.25s ease",
         }}
       >

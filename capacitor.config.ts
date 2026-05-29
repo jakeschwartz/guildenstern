@@ -6,10 +6,9 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     Keyboard: {
-      // Resize the WebView (shrink the document body) instead of overlaying
-      // the keyboard on top of unchanged content — stops the whole page from
-      // shifting when the composer is focused.
-      resize: "body",
+      // Native mode = iOS's built-in keyboard-avoidance via scroll view
+      // adjustment. More reliable than "body" mode in our setup.
+      resize: "native",
       style: "DARK",
       resizeOnFullScreen: true,
     },

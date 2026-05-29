@@ -82,6 +82,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
 
       <div
         ref={scrollRef}
+        data-thread-scroll="true"
         className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5"
       >
         {thread.messages.length === 0 && (

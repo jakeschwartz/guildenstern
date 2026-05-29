@@ -133,6 +133,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
 
       <div
         ref={scrollRef}
+        data-thread-scroll="true"
         className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4"
       >
         {thread.messages.length === 0 && (

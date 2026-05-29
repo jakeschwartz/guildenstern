@@ -17,14 +17,27 @@ export async function initKeyboardIfNative() {
     };
     setHeight(0);
 
+    // Find the active scrollable region (the messages container) and jump
+    // it to the bottom whenever the keyboard appears, so the most recent
+    // messages stay visible above the composer.
+    const scrollAllToBottom = () => {
+      document
+        .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
+        .forEach((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+    };
+
     Keyboard.addListener("keyboardWillShow", (info) => {
       setHeight(info.keyboardHeight);
     });
-    Keyboard.addListener("keyboardWillHide", () => {
-      setHeight(0);
-    });
     Keyboard.addListener("keyboardDidShow", (info) => {
       setHeight(info.keyboardHeight);
+      // After the height transition settles, re-pin to bottom.
+      requestAnimationFrame(() => scrollAllToBottom());
+    });
+    Keyboard.addListener("keyboardWillHide", () => {
+      setHeight(0);
     });
   } catch (e) {
     console.warn("[guildenstern] keyboard init failed", e);

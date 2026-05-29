@@ -13,16 +13,18 @@ type Props = { children: ReactNode };
 // centered on the page — useful when sketching the UI from a laptop.
 export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
-    // Manual keyboard handling: --kbd-h is set by lib/keyboard.ts on
-    // keyboardWillShow / keyboardWillHide. We shrink the available area by
-    // that amount so the composer sits right above the keyboard instead of
-    // iOS auto-scrolling us around.
+    // Pad safe-area top (Dynamic Island / notch), bottom (home indicator),
+    // and L/R (in case of landscape later). Height accounts for keyboard
+    // via --kbd-h set in lib/keyboard.ts.
     return (
       <div
-        className="bg-paper relative overflow-hidden flex flex-col w-full"
+        className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
         style={{
           height: `calc(100dvh - var(--kbd-h, 0px))`,
+          paddingTop: "env(safe-area-inset-top)",
           paddingBottom: "env(safe-area-inset-bottom)",
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
           transition: "height 0.25s ease",
         }}
       >

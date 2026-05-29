@@ -7,7 +7,7 @@ type Props = {
 };
 
 export const ThreadAnchor = ({ onBack, onExpand, children }: Props) => (
-  <div className="w-full pt-11 pb-2 pl-1 pr-2 flex items-center gap-1 border-b border-rule bg-paper">
+  <div className="w-full pt-2 pb-2 pl-1 pr-2 flex items-center gap-1 border-b border-rule bg-paper">
     <button
       onClick={onBack}
       className="h-11 w-11 flex items-center justify-center text-muted hover:text-ink shrink-0"

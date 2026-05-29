@@ -8,7 +8,7 @@ type Props = {
 };
 
 export const InboxHeader = ({ onFilter, onNew, onMenu }: Props) => (
-  <header className="px-5 pt-11 pb-3 border-b border-rule flex items-baseline justify-between">
+  <header className="px-5 pt-3 pb-3 border-b border-rule flex items-baseline justify-between">
     <h1 className="text-[22px] font-semibold tracking-tight text-ink">
       Threads
     </h1>

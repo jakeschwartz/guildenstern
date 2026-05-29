@@ -58,7 +58,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="px-4 pt-11 pb-3 border-b border-rule flex items-center gap-3">
+      <header className="px-4 pt-2 pb-3 border-b border-rule flex items-center gap-3">
         <button
           onClick={onBack}
           className="h-9 w-9 flex items-center justify-center text-muted hover:text-ink shrink-0"

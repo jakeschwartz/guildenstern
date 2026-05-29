@@ -6,11 +6,11 @@ const config: CapacitorConfig = {
   webDir: "dist",
   plugins: {
     Keyboard: {
-      // Native mode = iOS's built-in keyboard-avoidance via scroll view
-      // adjustment. More reliable than "body" mode in our setup.
-      resize: "native",
+      // resize=none → iOS does NOT auto-adjust. We handle it manually in
+      // lib/keyboard.ts by tracking the keyboard height in a CSS variable.
+      resize: "none",
       style: "DARK",
-      resizeOnFullScreen: true,
+      resizeOnFullScreen: false,
     },
   },
 };

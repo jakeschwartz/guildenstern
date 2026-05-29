@@ -13,15 +13,17 @@ type Props = { children: ReactNode };
 // centered on the page — useful when sketching the UI from a laptop.
 export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
-    // Height is h-full (= 100% of body) rather than h-[100dvh] so that the
-    // Capacitor Keyboard plugin's `resize: body` actually shrinks us when
-    // the soft keyboard opens. dvh ignores body resize and causes the whole
-    // composer view to drift around as iOS auto-scrolls the focused input.
+    // Manual keyboard handling: --kbd-h is set by lib/keyboard.ts on
+    // keyboardWillShow / keyboardWillHide. We shrink the available area by
+    // that amount so the composer sits right above the keyboard instead of
+    // iOS auto-scrolling us around.
     return (
       <div
-        className="bg-paper relative overflow-hidden flex flex-col w-full h-full"
+        className="bg-paper relative overflow-hidden flex flex-col w-full"
         style={{
+          height: `calc(100dvh - var(--kbd-h, 0px))`,
           paddingBottom: "env(safe-area-inset-bottom)",
+          transition: "height 0.25s ease",
         }}
       >
         {children}

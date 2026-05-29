@@ -135,29 +135,34 @@ Deno.serve(async (req) => {
         {
           name: "decide",
           description:
-            "Decide whether to echo this message back to the sender as a structured ack, or to stay silent.",
+            "Decide whether to respond to this message, and what to say.",
           input_schema: {
             type: "object",
             properties: {
+              respond: {
+                type: "boolean",
+                description:
+                  "true if the agent should reply at all; false to stay silent (pure emoji, social-to-Mira, typo noise, or — in partnership threads — direct/emotional messages that ride through)",
+              },
               kind: {
                 type: "string",
-                enum: ["burst", "direct"],
+                enum: ["burst", "conversational"],
                 description:
-                  "burst = items to echo back; direct = stay silent, message rides through",
+                  "burst = multiple trackable items → structured echo format. conversational = short reply, ack with optional clarifying question. Only used when respond=true.",
+              },
+              ack: {
+                type: "string",
+                description:
+                  "The actual message text the agent will say. Empty string if respond=false. If burst: starts with 'Got it — ' and ends with ' Sound right?'. If conversational: 1-2 sentences in Mira's warm voice.",
               },
               items: {
                 type: "array",
                 items: { type: "string" },
                 description:
-                  "If burst: 1-6 short item phrases in order. If direct: empty.",
-              },
-              ack: {
-                type: "string",
-                description:
-                  "If burst: the full ack string starting with 'Got it — ' and ending with ' Sound right?'. If direct: empty string.",
+                  "If burst: 1-6 short item phrases in order. Otherwise: empty.",
               },
             },
-            required: ["kind", "items", "ack"],
+            required: ["respond", "kind", "ack", "items"],
           },
         },
       ],
@@ -185,13 +190,13 @@ Deno.serve(async (req) => {
   }
 
   const decision = toolUse.input as {
-    kind: "burst" | "direct";
+    respond: boolean;
+    kind: "burst" | "conversational";
     items: string[];
     ack: string;
   };
 
-  if (decision.kind === "direct" || !decision.ack.trim()) {
-    // Stay silent. The human message already rides through.
+  if (!decision.respond || !decision.ack.trim()) {
     return new Response(JSON.stringify({ silent: true }), {
       headers: { "content-type": "application/json" },
     });

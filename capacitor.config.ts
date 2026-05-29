@@ -5,11 +5,11 @@ const config: CapacitorConfig = {
   appName: "Guildenstern",
   webDir: "dist",
   ios: {
-    // WKWebView default is edge-to-edge (contentInset='never') which puts our
-    // content behind the status bar / Dynamic Island and lets it overflow the
-    // sides. 'always' makes the native WebView always inset for the safe area
-    // and also makes env(safe-area-inset-*) return the right values in CSS.
-    contentInset: "always",
+    // Edge-to-edge: WebView extends into the safe areas. Our dark paper bg
+    // fills the whole device including under the status bar and home
+    // indicator (no iOS-grey gap below the composer). We then pad PhoneFrame
+    // by env(safe-area-inset-*) so actual content sits inside the safe area.
+    contentInset: "never",
   },
   plugins: {
     Keyboard: {

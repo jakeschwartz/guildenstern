@@ -12,8 +12,16 @@ export async function initKeyboardIfNative() {
     await Keyboard.setStyle({ style: KeyboardStyle.Dark });
     await Keyboard.setAccessoryBarVisible({ isVisible: false });
 
+    const root = document.documentElement;
     const setHeight = (px: number) => {
-      document.documentElement.style.setProperty("--kbd-h", `${px}px`);
+      root.style.setProperty("--kbd-h", `${px}px`);
+      // When the keyboard is up, the home-indicator safe-area inset shouldn't
+      // also push the composer up (the keyboard IS the bottom). Toggle a
+      // separate var that PhoneFrame uses for paddingBottom.
+      root.style.setProperty(
+        "--safe-b",
+        px > 0 ? "0px" : "env(safe-area-inset-bottom)",
+      );
     };
     setHeight(0);
 

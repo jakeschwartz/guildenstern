@@ -13,16 +13,22 @@ type Props = { children: ReactNode };
 // centered on the page — useful when sketching the UI from a laptop.
 export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
-    // ios.contentInset='always' in capacitor.config makes WKWebView itself
-    // inset for safe areas, so we DON'T add our own env() padding here
-    // (would double up). Height still subtracts the keyboard so the
-    // composer sits flush against it.
+    // WebView is edge-to-edge (contentInset='never'); we pad here so the
+    // header sits below the Dynamic Island and the composer above the home
+    // indicator. The paper bg fills the whole device including the inset
+    // strips — no iOS-grey gap below the composer.
+    // When the keyboard is up, we drop the bottom inset (the keyboard IS
+    // the bottom) and shrink the frame by the keyboard height.
     return (
       <div
         className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
         style={{
           height: `calc(100dvh - var(--kbd-h, 0px))`,
-          transition: "height 0.25s ease",
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "var(--safe-b, env(safe-area-inset-bottom))",
+          paddingLeft: "env(safe-area-inset-left)",
+          paddingRight: "env(safe-area-inset-right)",
+          transition: "height 0.25s ease, padding-bottom 0.25s ease",
         }}
       >
         {children}

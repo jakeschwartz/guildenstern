@@ -5,7 +5,7 @@
 // of RoutedRow items underneath, in keeping with the "everything is in her
 // voice" framing.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { sendMessage, useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
@@ -44,6 +44,13 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
     () => new Map<string, User>(users.map((u) => [u.id, u])),
     [users],
   );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const messageCount = thread?.kind === "personal" ? thread.messages.length : 0;
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messageCount]);
 
   if (!thread || thread.kind !== "personal") {
     return (
@@ -73,7 +80,10 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5"
+      >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">
             Tell Mira what's on your mind.

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { sendMessage, useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
@@ -58,6 +58,14 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
     [users],
   );
   const [sheetOpen, setSheetOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const messageCount =
+    thread?.kind === "partnership" ? thread.messages.length : 0;
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messageCount]);
 
   if (!thread || thread.kind !== "partnership") {
     return (
@@ -123,7 +131,10 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4"
+      >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">
             No messages yet. {partner ? `Say hi to ${partner.name}.` : ""}

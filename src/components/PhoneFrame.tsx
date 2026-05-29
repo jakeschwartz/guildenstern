@@ -13,22 +13,23 @@ type Props = { children: ReactNode };
 // centered on the page — useful when sketching the UI from a laptop.
 export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
-    // WebView is edge-to-edge (contentInset='never'); we pad here so the
-    // header sits below the Dynamic Island and the composer above the home
-    // indicator. The paper bg fills the whole device including the inset
-    // strips — no iOS-grey gap below the composer.
-    // When the keyboard is up, we drop the bottom inset (the keyboard IS
-    // the bottom) and shrink the frame by the keyboard height.
+    // Position: fixed so iOS WebView's native auto-scroll-into-view (which
+    // fires on input focus) can't shift us — header and composer stay put.
+    // bottom: var(--kbd-h) physically anchors the frame above the keyboard.
     return (
       <div
-        className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
+        className="bg-paper overflow-hidden flex flex-col max-w-full"
         style={{
-          height: `calc(100dvh - var(--kbd-h, 0px))`,
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: "var(--kbd-h, 0px)",
           paddingTop: "var(--safe-t, 0px)",
           paddingBottom: "var(--safe-b, 0px)",
           paddingLeft: "var(--safe-l, 0px)",
           paddingRight: "var(--safe-r, 0px)",
-          transition: "height 0.25s ease, padding-bottom 0.25s ease",
+          transition: "bottom 0.2s ease, padding-bottom 0.2s ease",
         }}
       >
         {children}

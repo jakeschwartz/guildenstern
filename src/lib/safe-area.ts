@@ -1,16 +1,14 @@
-// env(safe-area-inset-*) sometimes returns 0 in WKWebView even with
-// viewport-fit=cover (timing / WebView quirks). Read the values from a
-// hidden probe div on boot and write them to --safe-t / --safe-r /
-// --safe-b / --safe-l as concrete pixel numbers. Resilient against
-// env-doesn't-work, and components don't have to care about the source.
+// Safe-area + keyboard height management.
+//
+// env(safe-area-inset-*) returns 0 in our WKWebView even with viewport-fit
+// =cover (timing/init quirk). And @capacitor/keyboard's `keyboardHeight`
+// often undercounts because it doesn't include the predictive-text bar.
+//
+// Workaround: hardcode safe-area values by device height (we know we're on
+// iPhone 17 Pro Max for now), and use window.visualViewport to track the
+// *actual* keyboard-occupied height in real time.
 
-import { Capacitor } from "@capacitor/core";
-
-const HARDCODED_FALLBACKS_BY_HEIGHT: Array<{
-  minH: number;
-  top: number;
-  bottom: number;
-}> = [
+const DEVICE_PROFILES = [
   // iPhone 16/17 Pro Max-ish
   { minH: 900, top: 59, bottom: 34 },
   // iPhone 16/17 Pro-ish
@@ -21,62 +19,56 @@ const HARDCODED_FALLBACKS_BY_HEIGHT: Array<{
   { minH: 0, top: 20, bottom: 0 },
 ];
 
-const fallbackForHeight = (h: number) =>
-  HARDCODED_FALLBACKS_BY_HEIGHT.find((f) => h >= f.minH) ??
-  HARDCODED_FALLBACKS_BY_HEIGHT[HARDCODED_FALLBACKS_BY_HEIGHT.length - 1];
+const profile = () => {
+  const h = window.innerHeight;
+  return (
+    DEVICE_PROFILES.find((p) => h >= p.minH) ??
+    DEVICE_PROFILES[DEVICE_PROFILES.length - 1]
+  );
+};
 
-export function measureSafeArea() {
-  if (typeof window === "undefined" || typeof document === "undefined") return;
+let cachedSafeBottom = "0px";
 
-  // Probe div pinned to the four edges. We compute its bounding rect to read
-  // env() values as concrete pixels. If env returns 0 (the bug we're working
-  // around), the probe will show zero offset and we fall back to known
-  // device values.
-  const probe = document.createElement("div");
-  probe.setAttribute("aria-hidden", "true");
-  probe.style.cssText = `
-    position: fixed;
-    top: env(safe-area-inset-top);
-    left: env(safe-area-inset-left);
-    right: env(safe-area-inset-right);
-    bottom: env(safe-area-inset-bottom);
-    pointer-events: none;
-    visibility: hidden;
-  `;
-  document.body.appendChild(probe);
+export function initSafeArea() {
+  if (typeof window === "undefined") return;
+  const root = document.documentElement;
 
-  // Read after a frame so the layout settles.
-  requestAnimationFrame(() => {
-    const rect = probe.getBoundingClientRect();
-    const winH = window.innerHeight;
-    const winW = window.innerWidth;
+  const apply = () => {
+    const p = profile();
+    cachedSafeBottom = `${p.bottom}px`;
+    root.style.setProperty("--safe-t", `${p.top}px`);
+    root.style.setProperty("--safe-b", cachedSafeBottom);
+    root.style.setProperty("--safe-l", "0px");
+    root.style.setProperty("--safe-r", "0px");
+  };
 
-    let top = Math.max(0, rect.top);
-    let right = Math.max(0, winW - rect.right);
-    let bottom = Math.max(0, winH - rect.bottom);
-    let left = Math.max(0, rect.left);
+  apply();
 
-    // If env() returned all-zero on a native device, fall back to known values.
-    if (
-      Capacitor.isNativePlatform() &&
-      top === 0 &&
-      bottom === 0
-    ) {
-      const fb = fallbackForHeight(winH);
-      top = fb.top;
-      bottom = fb.bottom;
-      console.warn(
-        "[guildenstern] env(safe-area) returned 0; using device-height fallback",
-        { winH, top, bottom },
-      );
+  // window.visualViewport reports the *visible* viewport: shrinks when the
+  // soft keyboard opens (including the predictive-text bar). We track the
+  // delta and write --kbd-h. When the keyboard is up, --safe-b → 0px so
+  // the composer sits flush against the keyboard.
+  const vv = window.visualViewport;
+  if (!vv) return;
+
+  const onViewportChange = () => {
+    const kbd = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    root.style.setProperty("--kbd-h", `${kbd}px`);
+    root.style.setProperty("--safe-b", kbd > 0 ? "0px" : cachedSafeBottom);
+    if (kbd > 0) {
+      // Pin any thread-scroll container to the bottom whenever the visible
+      // viewport changes (keyboard show / size change).
+      requestAnimationFrame(() => {
+        document
+          .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
+          .forEach((el) => {
+            el.scrollTop = el.scrollHeight;
+          });
+      });
     }
+  };
 
-    const root = document.documentElement;
-    root.style.setProperty("--safe-t", `${top}px`);
-    root.style.setProperty("--safe-r", `${right}px`);
-    root.style.setProperty("--safe-l", `${left}px`);
-    root.style.setProperty("--safe-b", `${bottom}px`);
-
-    probe.remove();
-  });
+  vv.addEventListener("resize", onViewportChange);
+  vv.addEventListener("scroll", onViewportChange);
+  onViewportChange();
 }

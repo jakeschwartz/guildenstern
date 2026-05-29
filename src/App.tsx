@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { PhoneFrame } from "./components/PhoneFrame";
 import { Sheet } from "./components/Sheet";
 import { ThreadList } from "./views/ThreadList";
@@ -19,11 +20,18 @@ type Route =
   | { name: "personal"; threadId: string }
   | { name: "partnership"; threadId: string };
 
-const Frame = ({ children }: { children: React.ReactNode }) => (
-  <div className="min-h-full w-full flex items-center justify-center py-6">
-    <PhoneFrame>{children}</PhoneFrame>
-  </div>
-);
+// On native: zero outer padding, app fills the device. On web: center the
+// 393x760 phone-shaped frame on the page for desktop preview.
+const Frame = ({ children }: { children: React.ReactNode }) => {
+  if (Capacitor.isNativePlatform()) {
+    return <PhoneFrame>{children}</PhoneFrame>;
+  }
+  return (
+    <div className="min-h-full w-full flex items-center justify-center py-6">
+      <PhoneFrame>{children}</PhoneFrame>
+    </div>
+  );
+};
 
 export const App = () => {
   const session = useSession();

@@ -263,13 +263,20 @@ export const sendMessage = async (threadId: string, body: string) => {
   try {
     await db.sendMessage(threadId, body);
   } catch (e) {
-    // Roll back the optimistic add on failure.
+    // Loud failure: log the raw error AND alert so dev iteration without
+    // Safari Web Inspector still surfaces the problem. The optimistic message
+    // gets rolled back so the input is ready for the user to try again.
+    console.error("[guildenstern] sendMessage failed", { threadId, body, error: e });
+    const errMsg = e instanceof Error ? e.message : JSON.stringify(e);
+    if (typeof window !== "undefined" && "alert" in window) {
+      window.alert(`Couldn't send: ${errMsg}`);
+    }
     const rolled = state.threads.map((t) =>
       t.id === threadId
         ? { ...t, messages: t.messages.filter((m) => m.id !== optimistic.id) }
         : t,
     );
-    setState({ threads: rolled, error: e instanceof Error ? e.message : String(e) });
+    setState({ threads: rolled, error: errMsg });
   }
 };
 

@@ -32,21 +32,28 @@ export const useSession = (): Session | null | "loading" => {
   return session;
 };
 
+// Hex-encoded SHA-256. Apple's native Sign in with Apple expects the request
+// nonce to be the hashed value (it embeds it verbatim in the id_token's nonce
+// claim — no further hashing on Apple's side). Supabase needs the RAW nonce
+// so it can hash and compare. So we hash on the way to Apple, raw to Supabase.
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function signInWithApple(): Promise<void> {
   if (Capacitor.isNativePlatform()) {
-    // Native iOS path: Apple's sheet, identity token, hand to Supabase.
-    // The nonce flow: we generate a raw nonce, pass it to Apple (the plugin
-    // sends it as-is, Apple SHA-256 hashes it before embedding in the id_token).
-    // We must hand the SAME raw nonce back to Supabase so it can re-hash and
-    // verify against the token's nonce claim. Mismatched → "Passed nonce and
-    // nonce in id_token should either both exist or not."
     const rawNonce = crypto.randomUUID();
+    const hashedNonce = await sha256Hex(rawNonce);
     const res = await SignInWithApple.authorize({
       clientId: APPLE_BUNDLE_ID,
       redirectURI: SUPABASE_CALLBACK,
       scopes: "email name",
       state: "init",
-      nonce: rawNonce,
+      nonce: hashedNonce,
     });
     const idToken = res.response.identityToken;
     if (!idToken) throw new Error("Apple returned no identity token");

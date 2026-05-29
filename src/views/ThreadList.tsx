@@ -12,6 +12,7 @@ type Props = {
   onOpen: (threadId: string) => void;
   onNew?: () => void;
   onFilter?: () => void;
+  onMenu?: () => void;
 };
 
 const lastActivity = (t: PartnershipThread | PersonalThread): number => {
@@ -30,7 +31,7 @@ const previewText = (
   return `${name}: ${m.body}`;
 };
 
-export const ThreadList = ({ onOpen, onNew, onFilter }: Props) => {
+export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
   const threads = useStore((s) => s.threads);
   const partnerships = useStore((s) => s.partnerships);
   const users = useStore((s) => s.users);
@@ -58,7 +59,7 @@ export const ThreadList = ({ onOpen, onNew, onFilter }: Props) => {
 
   return (
     <div className="flex flex-col h-full">
-      <InboxHeader onFilter={onFilter} onNew={onNew} />
+      <InboxHeader onFilter={onFilter} onNew={onNew} onMenu={onMenu} />
 
       <div className="flex-1 overflow-y-auto">
         {personalThread && (

@@ -106,8 +106,9 @@ export const App = () => {
       {route.name === "inbox" && (
         <ThreadList
           onOpen={openThread}
-          onNew={() => setMenuOpen(true)}
+          onNew={() => {}}
           onFilter={() => {}}
+          onMenu={() => setMenuOpen(true)}
         />
       )}
       {route.name === "personal" && (
@@ -120,18 +121,6 @@ export const App = () => {
       {route.name === "partnership" && (
         <PartnershipThread threadId={route.threadId} onBack={goInbox} />
       )}
-
-      <button
-        onClick={() => setMenuOpen(true)}
-        aria-label="Menu"
-        className="absolute bottom-4 right-4 z-20 h-11 w-11 rounded-full bg-ink text-paper shadow-[0_6px_20px_-4px_rgba(0,0,0,0.65)] flex items-center justify-center hover:opacity-90 transition-opacity"
-      >
-        <span className="flex flex-col gap-[3px]">
-          <span className="block w-[14px] h-[1.5px] bg-current rounded-full" />
-          <span className="block w-[14px] h-[1.5px] bg-current rounded-full" />
-          <span className="block w-[14px] h-[1.5px] bg-current rounded-full" />
-        </span>
-      </button>
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
         <ul className="divide-y divide-rule border-y border-rule -mx-5">

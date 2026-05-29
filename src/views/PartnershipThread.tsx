@@ -41,9 +41,9 @@ const summarize = (
     };
   }
   if (cards.length > 0) {
-    return { tone: "text-agent", dot: "bg-agent", label: "All caught up" };
+    return { tone: "text-mira", dot: "bg-mira", label: "All caught up" };
   }
-  return { tone: "text-agent", dot: "bg-agent", label: "Agent listening" };
+  return { tone: "text-mira", dot: "bg-mira", label: "Agent listening" };
 };
 
 export const PartnershipThread = ({ threadId, onBack }: Props) => {
@@ -185,7 +185,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
                     <span
                       className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
                         card.status === "done"
-                          ? "bg-agent"
+                          ? "bg-mira"
                           : card.status === "pending"
                             ? "bg-muted"
                             : "bg-rule"
@@ -204,7 +204,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
                         <span
                           className={
                             card.status === "done"
-                              ? "text-agent"
+                              ? "text-mira"
                               : "text-muted"
                           }
                         >

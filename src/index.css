@@ -2,6 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * v4 palette per docs/UX_SPEC.md. Dark is the default canvas. Mira plum and
+ * Otis green are STRUCTURAL only — used on left margin rules, badges, names.
+ * Never on message body text. Mira's pinned-row tint has its own token
+ * (--mira-tint) so the inbox doesn't bathe in plum.
+ */
+
+:root {
+  /* Canvas */
+  --paper: oklch(0.225 0.006 270);
+  --page: oklch(0.16 0.005 270);
+  --card: oklch(0.265 0.007 270);
+  --rule: oklch(0.33 0.008 270);
+  --ink: oklch(0.95 0.004 80);
+  --muted: oklch(0.66 0.005 80);
+
+  /* Voice — structural only */
+  --mira: oklch(0.76 0.13 320);
+  --mira-tint: oklch(0.30 0.025 320);
+  --otis: oklch(0.78 0.13 165);
+  --otis-tint: oklch(0.31 0.03 165);
+  --specialist: oklch(0.74 0.10 240);
+  --specialist-tint: oklch(0.31 0.03 240);
+
+  /* Spoke (private side channel canvas) is a deeper otis-leaning green */
+  --spoke-canvas: oklch(0.26 0.05 165);
+
+  /* States */
+  --attention: oklch(0.78 0.15 60);
+  --attention-tint: oklch(0.30 0.04 60);
+
+  /* Other-human warm tint (used in shared rooms to differentiate substrate) */
+  --warm-paper: oklch(0.245 0.012 60);
+}
+
+html.light {
+  --paper: oklch(0.98 0.008 80);
+  --page: oklch(0.96 0.008 80);
+  --card: oklch(0.94 0.008 80);
+  --rule: oklch(0.88 0.008 80);
+  --ink: oklch(0.20 0.005 270);
+  --muted: oklch(0.46 0.005 80);
+
+  --mira: oklch(0.42 0.08 320);
+  --mira-tint: oklch(0.94 0.03 320);
+  --otis: oklch(0.42 0.07 165);
+  --otis-tint: oklch(0.94 0.03 165);
+  --specialist: oklch(0.42 0.06 240);
+  --specialist-tint: oklch(0.94 0.03 240);
+
+  --spoke-canvas: oklch(0.94 0.04 165);
+
+  --attention: oklch(0.55 0.18 60);
+  --attention-tint: oklch(0.94 0.04 60);
+
+  --warm-paper: oklch(0.97 0.014 60);
+}
+
 html,
 body,
 #root {
@@ -9,10 +67,15 @@ body,
 }
 
 body {
-  background: #0A0A0C;
-  color: #F2EFE6;
+  background: var(--page);
+  color: var(--ink);
   font-family: theme("fontFamily.sans");
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "ss01", "cv11";
+}
+
+/* Small-caps name in the coded agent header. */
+.smallcaps {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.04em;
 }

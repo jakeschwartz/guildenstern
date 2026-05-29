@@ -1,57 +1,40 @@
-import { useMemo, useState } from "react";
+// Mira's pinned thread — your private 1:1 with the concierge. Spec §7 scene
+// 02 + 07. Agent messages render as Voice (rule + coded header). Human
+// messages render as regular bubbles. The first message in a thread that
+// would have shown a "briefing card" now flattens into a Voice with a list
+// of RoutedRow items underneath, in keeping with the "everything is in her
+// voice" framing.
+
+import { useMemo } from "react";
 import { sendMessage, useStore } from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
-import { BriefingCard } from "../components/BriefingCard";
+import { Voice } from "../components/Voice";
+import { RoutedRow } from "../components/RoutedRow";
+import { formatClock } from "../lib/time";
 import type { BriefingItem, Message, User } from "../types";
 
 type Props = {
   threadId: string;
   onBack: () => void;
-  // onReviewNew kept in the prop shape to preserve App.tsx call sites; will
-  // re-enable once the relationship thread kind is back.
-  onReviewNew?: () => void;
   onOpenThread: (threadId: string) => void;
 };
 
-type RenderItem =
-  | { kind: "single"; message: Message }
-  | {
-      kind: "fold";
-      groupId: string;
-      summary: string;
-      messages: Message[];
-    };
+const briefingToRoutedRows = (
+  items: BriefingItem[],
+  onOpenThread: (id: string) => void,
+) =>
+  items.map((it, i) => (
+    <RoutedRow
+      key={i}
+      label={it.label}
+      detail={it.detail}
+      status={it.status}
+      onTap={it.threadId ? () => onOpenThread(it.threadId!) : undefined}
+    />
+  ));
 
-const groupMessages = (messages: Message[]): RenderItem[] => {
-  const items: RenderItem[] = [];
-  let i = 0;
-  while (i < messages.length) {
-    const m = messages[i]!;
-    if (!m.foldGroupId) {
-      items.push({ kind: "single", message: m });
-      i++;
-      continue;
-    }
-    // Collect consecutive messages sharing this foldGroupId.
-    const groupId = m.foldGroupId;
-    const group: Message[] = [];
-    while (i < messages.length && messages[i]!.foldGroupId === groupId) {
-      group.push(messages[i]!);
-      i++;
-    }
-    const summary =
-      group.find((g) => g.foldSummary)?.foldSummary ?? "Resolved";
-    items.push({ kind: "fold", groupId, summary, messages: group });
-  }
-  return items;
-};
-
-export const PersonalThread = ({
-  threadId,
-  onBack,
-  onOpenThread,
-}: Props) => {
+export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "personal"),
   );
@@ -60,9 +43,6 @@ export const PersonalThread = ({
   const usersById = useMemo(
     () => new Map<string, User>(users.map((u) => [u.id, u])),
     [users],
-  );
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(),
   );
 
   if (!thread || thread.kind !== "personal") {
@@ -76,21 +56,9 @@ export const PersonalThread = ({
     );
   }
 
-  const me = usersById.get(currentUserId);
-  const items = groupMessages(thread.messages);
-
-  const toggleGroup = (groupId: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  };
-
   return (
     <div className="flex flex-col h-full">
-      <header className="px-4 pt-12 pb-3 border-b border-rule flex items-center gap-3">
+      <header className="px-4 pt-11 pb-3 border-b border-rule flex items-center gap-3">
         <button
           onClick={onBack}
           className="h-9 w-9 flex items-center justify-center text-muted hover:text-ink shrink-0"
@@ -98,87 +66,57 @@ export const PersonalThread = ({
         >
           <span className="text-[18px] leading-none">←</span>
         </button>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-agent shrink-0" />
-          <span className="text-[15px] font-semibold text-ink tracking-tight">
-            Agent
-          </span>
-          <span className="text-[12px] text-muted">
-            · {me?.name ?? "you"}
-          </span>
+        <div className="flex items-baseline gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-mira shrink-0" />
+          <span className="smallcaps text-[12px] text-mira">Mira</span>
+          <span className="smallcaps text-[12px] text-muted">· concierge</span>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-5">
-        {items.map((item) => {
-          if (item.kind === "fold") {
-            const isExpanded = expandedGroups.has(item.groupId);
-            return (
-              <div key={item.groupId} className="flex flex-col gap-3">
-                <button
-                  onClick={() => toggleGroup(item.groupId)}
-                  className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-rule bg-card/40 hover:bg-card transition-colors text-left"
+        {thread.messages.length === 0 && (
+          <div className="text-center text-[12.5px] text-muted py-8">
+            Tell Mira what's on your mind.
+          </div>
+        )}
+        {thread.messages.map((m: Message) => {
+          if (m.author.kind === "agent") {
+            if (m.briefing) {
+              return (
+                <Voice
+                  key={m.id}
+                  voice="mira"
+                  name="Mira"
+                  role="concierge"
+                  body={m.body || undefined}
+                  timestamp={formatClock(m.createdAt)}
                 >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="text-agent text-[12px] shrink-0">✓</span>
-                    <span className="text-[12.5px] text-muted truncate">
-                      {item.summary}
-                    </span>
-                  </span>
-                  <span className="text-muted text-[11px] shrink-0">
-                    {isExpanded ? "Hide" : "Expand"}
-                  </span>
-                </button>
-                {isExpanded && (
-                  <div className="flex flex-col gap-4 pl-2 border-l-2 border-rule">
-                    {item.messages.map((m) => {
-                      const author =
-                        m.author.kind === "human"
-                          ? usersById.get(m.author.userId) ?? null
-                          : null;
-                      const isSelf =
-                        m.author.kind === "human" &&
-                        m.author.userId === currentUserId;
-                      return (
-                        <MessageBubble
-                          key={m.id}
-                          message={m}
-                          author={author}
-                          isSelf={isSelf}
-                        />
-                      );
-                    })}
+                  <div className="mt-1">
+                    {briefingToRoutedRows(m.briefing.items, onOpenThread)}
                   </div>
-                )}
-              </div>
+                </Voice>
+              );
+            }
+            return (
+              <Voice
+                key={m.id}
+                voice="mira"
+                name="Mira"
+                role="concierge"
+                body={m.body}
+                timestamp={formatClock(m.createdAt)}
+              />
             );
           }
-
-          const m = item.message;
-          const author =
-            m.author.kind === "human"
-              ? usersById.get(m.author.userId) ?? null
-              : null;
-          const isSelf =
-            m.author.kind === "human" && m.author.userId === currentUserId;
-          const handleItemTap = (briefingItem: BriefingItem) => {
-            if (briefingItem.threadId) {
-              onOpenThread(briefingItem.threadId);
-            }
-          };
+          const author = usersById.get(m.author.userId) ?? null;
+          const isSelf = m.author.userId === currentUserId;
           return (
-            <div key={m.id} className="flex flex-col gap-3">
-              {m.briefing && (
-                <BriefingCard
-                  title={m.briefing.title}
-                  items={m.briefing.items}
-                  onTapItem={handleItemTap}
-                />
-              )}
-              {m.body && (
-                <MessageBubble message={m} author={author} isSelf={isSelf} />
-              )}
-            </div>
+            <MessageBubble
+              key={m.id}
+              message={m}
+              author={author}
+              isSelf={isSelf}
+            />
           );
         })}
       </div>
@@ -187,7 +125,7 @@ export const PersonalThread = ({
         onSend={(body) => {
           if (body.trim()) sendMessage(thread.id, body);
         }}
-        placeholder="What's on your mind?"
+        placeholder="Tell Mira"
       />
     </div>
   );

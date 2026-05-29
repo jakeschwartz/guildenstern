@@ -17,12 +17,7 @@ export type MessageAuthor =
   | { kind: "human"; userId: UserId }
   | { kind: "agent" };
 
-export type BriefingTone =
-  | "attention"
-  | "agent"
-  | "deliberation"
-  | "muted"
-  | "neutral";
+export type BriefingTone = "attention" | "mira" | "muted" | "neutral";
 
 export type BriefingItem = {
   label: string;

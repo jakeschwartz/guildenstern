@@ -14,9 +14,10 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
     setValue("");
   };
   return (
-    <div className="border-t border-rule px-3 py-2.5 flex items-end gap-2 bg-paper">
+    <div className="border-t border-rule px-3 py-2.5 flex items-end gap-2 bg-paper w-full max-w-full min-w-0">
       <textarea
         value={value}
+        cols={1}
         onChange={(e) => {
           // iOS WebView fires onChange (not onKeyDown) when the "send" key is
           // pressed on the soft keyboard with enterkeyhint="send". Detect a
@@ -42,7 +43,7 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
         enterKeyHint="send"
         placeholder={placeholder}
         rows={1}
-        className="flex-1 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink"
+        className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[14.5px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink"
       />
       <button
         onClick={submit}

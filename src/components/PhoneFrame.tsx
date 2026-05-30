@@ -18,18 +18,12 @@ export const PhoneFrame = ({ children }: Props) => {
     // bottom: var(--kbd-h) physically anchors the frame above the keyboard.
     return (
       <div
-        className="bg-paper overflow-hidden flex flex-col max-w-full"
+        className="bg-paper overflow-hidden flex flex-col w-full h-full max-w-full"
         style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: "var(--kbd-h, 0px)",
           paddingTop: "var(--safe-t, 0px)",
           paddingBottom: "var(--safe-b, 0px)",
           paddingLeft: "var(--safe-l, 0px)",
           paddingRight: "var(--safe-r, 0px)",
-          transition: "bottom 0.2s ease, padding-bottom 0.2s ease",
         }}
       >
         {children}

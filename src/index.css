@@ -71,17 +71,6 @@ body,
   overflow: hidden;
 }
 
-/* Lock html/body so iOS can't scroll the whole document when an input is
- * focused (otherwise focusing the composer scrolls the top header off screen).
- * Only the messages container (overflow-y-auto inside) scrolls. */
-html,
-body {
-  position: fixed;
-  inset: 0;
-  touch-action: pan-y;
-  overscroll-behavior: none;
-}
-
 *,
 *::before,
 *::after {
@@ -91,10 +80,14 @@ body {
 /* Flex containers with default min-width: auto can be pushed wider than the
  * viewport by their content (especially textareas with default cols=20).
  * This is a known iOS WebView footgun. Force flex children to allow
- * shrinking below content size by default. Components that genuinely need
- * intrinsic minimum width override with .min-w-auto. */
+ * shrinking below content size by default. */
 .flex > * {
   min-width: 0;
+}
+
+/* Aggressively prevent any element from forcing horizontal overflow. */
+* {
+  max-width: 100%;
 }
 
 body {

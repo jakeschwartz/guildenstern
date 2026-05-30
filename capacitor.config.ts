@@ -13,11 +13,12 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      // resize=none → iOS does NOT auto-adjust. We handle it manually in
-      // lib/keyboard.ts by tracking the keyboard height in a CSS variable.
-      resize: "none",
+      // body: iOS shrinks document.body when the keyboard opens. Our layout
+      // fills body (h-full), so PhoneFrame naturally shrinks above the
+      // keyboard. No JS keyboard tracking, no translateY compensation.
+      resize: "body",
       style: "DARK",
-      resizeOnFullScreen: false,
+      resizeOnFullScreen: true,
     },
   },
 };

@@ -13,11 +13,28 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
     onSend(trimmed);
     setValue("");
   };
+  const scrollThreadsToBottom = () => {
+    document
+      .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
+      .forEach((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
+  };
   return (
     <div className="border-t border-rule px-3 py-2.5 flex items-end gap-2 bg-paper w-full max-w-full min-w-0">
       <textarea
         value={value}
         cols={1}
+        onFocus={() => {
+          // When iOS opens the keyboard, body shrinks → messages container
+          // shrinks → most recent messages get hidden behind composer.
+          // Pin to bottom across several frames so we catch the layout
+          // settling.
+          scrollThreadsToBottom();
+          requestAnimationFrame(scrollThreadsToBottom);
+          setTimeout(scrollThreadsToBottom, 150);
+          setTimeout(scrollThreadsToBottom, 350);
+        }}
         onChange={(e) => {
           // iOS WebView fires onChange (not onKeyDown) when the "send" key is
           // pressed on the soft keyboard with enterkeyhint="send". Detect a

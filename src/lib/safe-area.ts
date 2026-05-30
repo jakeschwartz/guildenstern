@@ -52,20 +52,16 @@ export function initSafeArea() {
   if (!vv) return;
 
   const onViewportChange = () => {
-    const kbd = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    root.style.setProperty("--kbd-h", `${kbd}px`);
-    root.style.setProperty("--safe-b", kbd > 0 ? "0px" : cachedSafeBottom);
-    if (kbd > 0) {
-      // Pin any thread-scroll container to the bottom whenever the visible
-      // viewport changes (keyboard show / size change).
-      requestAnimationFrame(() => {
-        document
-          .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
-          .forEach((el) => {
-            el.scrollTop = el.scrollHeight;
-          });
-      });
+    // iOS scrolls visualViewport up when input focuses. Always undo it —
+    // we don't want iOS to shift our layout; we handle keyboard ourselves.
+    if (vv.offsetTop > 0) {
+      window.scrollTo(0, 0);
     }
+    // visualViewport.height does NOT shrink under KeyboardResize.None, so
+    // we don't use it to compute keyboard height (that's done in
+    // lib/keyboard via the plugin events). vv-top tracked here only for
+    // diagnostics.
+    root.style.setProperty("--vv-top", `${vv.offsetTop}px`);
   };
 
   vv.addEventListener("resize", onViewportChange);

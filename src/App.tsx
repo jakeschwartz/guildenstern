@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { PhoneFrame } from "./components/PhoneFrame";
-import { DebugOverlay } from "./components/DebugOverlay";
 import { Sheet } from "./components/Sheet";
 import { ThreadList } from "./views/ThreadList";
 import { PartnershipThread } from "./views/PartnershipThread";
@@ -104,7 +103,6 @@ export const App = () => {
 
   return (
     <Frame>
-      <DebugOverlay />
       {route.name === "inbox" && (
         <ThreadList
           onOpen={openThread}

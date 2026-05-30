@@ -5,10 +5,9 @@ type Props = {
   placeholder?: string;
 };
 
-// Composer is position:fixed at the bottom of the viewport so it stays put
-// regardless of body resize / iOS scroll-into-view. Bottom rises with the
-// keyboard via --kbd-h, and sits above the home indicator via --safe-b
-// when the keyboard is hidden.
+// Composer is the last flex-column item in the thread view, in normal flow.
+// Body is shrunk by KeyboardResize.Body when the keyboard opens, so PhoneFrame
+// shrinks, so the composer rides up automatically.
 export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   const [value, setValue] = useState("");
   const submit = () => {
@@ -26,24 +25,19 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   };
   return (
     <div
-      className="border-t border-rule bg-paper px-3 py-2.5 flex items-end gap-2"
+      className="border-t border-rule bg-paper py-2.5 flex items-end gap-2 shrink-0 w-full max-w-full min-w-0"
       style={{
-        position: "fixed",
-        left: 0,
-        right: 0,
-        bottom: "calc(var(--kbd-h, 0px) + var(--safe-b, 0px))",
-        zIndex: 50,
-        transition: "bottom 0.2s ease",
+        paddingLeft: 20,
+        paddingRight: 20,
+        paddingBottom: "calc(10px + var(--safe-b, 34px))",
       }}
     >
       <textarea
         value={value}
         cols={1}
         onFocus={() => {
-          scrollThreadsToBottom();
-          requestAnimationFrame(scrollThreadsToBottom);
-          setTimeout(scrollThreadsToBottom, 150);
-          setTimeout(scrollThreadsToBottom, 350);
+          // Single scroll after the keyboard finishes animating in.
+          setTimeout(scrollThreadsToBottom, 300);
         }}
         onChange={(e) => {
           const next = e.target.value;

@@ -65,31 +65,33 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="px-4 pt-2 pb-3 border-b border-rule flex items-center gap-3">
+      <header
+        className="px-3 flex items-center gap-2 bg-paper border-b border-rule shrink-0"
+        style={{ height: 48 }}
+      >
         <button
           onClick={onBack}
-          className="h-9 w-9 flex items-center justify-center text-muted hover:text-ink shrink-0"
+          className="h-11 w-11 flex items-center justify-center text-ink hover:text-mira shrink-0 -ml-1"
           aria-label="Back"
         >
-          <span className="text-[18px] leading-none">←</span>
+          <span className="text-[22px] leading-none">‹</span>
         </button>
         <div className="flex items-baseline gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-mira shrink-0" />
-          <span className="smallcaps text-[12px] text-mira">Mira</span>
-          <span className="smallcaps text-[12px] text-muted">· concierge</span>
+          <span className="smallcaps text-[12.5px] font-semibold text-mira">
+            Mira
+          </span>
+          <span className="smallcaps text-[12.5px] text-muted">
+            · concierge
+          </span>
         </div>
       </header>
 
       <div
         ref={scrollRef}
         data-thread-scroll="true"
-        className="flex-1 overflow-y-auto px-4 pt-5 flex flex-col gap-5"
-        style={{
-          // Reserve room at the bottom for the position:fixed composer
-          // plus its keyboard/safe-area offset.
-          paddingBottom:
-            "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 0px))",
-        }}
+        className="flex-1 overflow-y-auto pt-5 flex flex-col gap-5 min-h-0"
+        style={{ paddingLeft: 24, paddingRight: 24 }}
       >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">

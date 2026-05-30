@@ -12,12 +12,13 @@ export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
     return (
       <div
-        className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
+        className="bg-paper relative overflow-hidden flex flex-col w-full h-full max-w-full"
         style={{
-          height: "100dvh",
-          paddingTop: "var(--safe-t, 0px)",
-          paddingLeft: "var(--safe-l, 0px)",
-          paddingRight: "var(--safe-r, 0px)",
+          // Hardcoded for iPhone 17 Pro Max while debugging — bypassing the
+          // safe-area CSS var which may not be applying in time.
+          paddingTop: "59px",
+          paddingLeft: "0px",
+          paddingRight: "0px",
         }}
       >
         {children}

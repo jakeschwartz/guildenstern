@@ -43,18 +43,19 @@ export const DebugOverlay = () => {
     <div
       style={{
         position: "fixed",
-        top: 62,
-        left: 4,
-        zIndex: 9999,
-        background: "rgba(255, 200, 0, 0.95)",
-        color: "#000",
-        fontSize: 10,
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 99999,
+        background: "rgba(255, 80, 0, 0.95)",
+        color: "#fff",
+        fontSize: 11,
         fontFamily: "ui-monospace, Menlo, monospace",
-        padding: "2px 5px",
-        borderRadius: 3,
+        padding: "3px 6px",
         pointerEvents: "none",
-        lineHeight: 1.15,
+        lineHeight: 1.2,
         whiteSpace: "nowrap",
+        textAlign: "center",
       }}
     >
       in {state.innerW}×{state.innerH} | vv {Math.round(state.vvW)}×{Math.round(state.vvH)}@{Math.round(state.vvTop)} | t={state.safeT} b={state.safeB} kbd={state.kbdH}

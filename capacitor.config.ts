@@ -13,12 +13,11 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      // body: iOS shrinks document.body when the keyboard opens. Our layout
-      // fills body (h-full), so PhoneFrame naturally shrinks above the
-      // keyboard. No JS keyboard tracking, no translateY compensation.
-      resize: "body",
+      // none: don't let iOS resize or auto-scroll. We control everything via
+      // CSS variables (--kbd-h, --safe-b) and a position:fixed composer.
+      resize: "none",
       style: "DARK",
-      resizeOnFullScreen: true,
+      resizeOnFullScreen: false,
     },
   },
 };

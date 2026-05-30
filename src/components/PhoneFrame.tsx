@@ -3,25 +3,19 @@ import { Capacitor } from "@capacitor/core";
 
 type Props = { children: ReactNode };
 
-// On real iOS (inside Capacitor): fill the device. We rely on h-[100dvh]
-// for the (dynamic) viewport height and pad the bottom by the safe-area
-// inset so the composer / menu button don't sit under the home indicator.
-// Top padding stays inside individual views (pt-11/12 already accounts for
-// the notch).
+// Native: fill the viewport, top padding = safe-area-top so content sits
+// below the Dynamic Island. Composer (fixed at viewport bottom) handles
+// its own keyboard / safe-area-bottom offset.
 //
-// On web (desktop browser preview): show a 393x760 phone-shaped container
-// centered on the page — useful when sketching the UI from a laptop.
+// Web (desktop preview): 393x760 phone-shaped centered container.
 export const PhoneFrame = ({ children }: Props) => {
   if (Capacitor.isNativePlatform()) {
-    // Position: fixed so iOS WebView's native auto-scroll-into-view (which
-    // fires on input focus) can't shift us — header and composer stay put.
-    // bottom: var(--kbd-h) physically anchors the frame above the keyboard.
     return (
       <div
-        className="bg-paper overflow-hidden flex flex-col w-full h-full max-w-full"
+        className="bg-paper relative overflow-hidden flex flex-col w-full max-w-full"
         style={{
+          height: "100dvh",
           paddingTop: "var(--safe-t, 0px)",
-          paddingBottom: "var(--safe-b, 0px)",
           paddingLeft: "var(--safe-l, 0px)",
           paddingRight: "var(--safe-r, 0px)",
         }}

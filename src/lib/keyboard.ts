@@ -12,26 +12,34 @@ export async function initKeyboardIfNative() {
     await Keyboard.setStyle({ style: KeyboardStyle.Dark });
     await Keyboard.setAccessoryBarVisible({ isVisible: false });
 
-    // With KeyboardResize.Body, iOS shrinks document.body — no manual
-    // tracking needed. We just toggle --safe-b to 0 when keyboard is up so
-    // the composer sits flush against it (no double home-indicator padding)
-    // and re-pin scrollable threads to the bottom.
+    // Canonical Capacitor pattern: track keyboard height as a CSS variable.
+    // The composer (position:fixed) uses calc(--kbd-h + --safe-b) for its
+    // bottom offset, so it rides above the keyboard automatically.
+    // KeyboardResize.None — we don't want iOS shrinking the body or
+    // doing its own scroll-into-view since we handle everything in CSS.
+    const PREDICTIVE_BAR_PX = 45;
     const root = document.documentElement;
-    Keyboard.addListener("keyboardWillShow", () => {
+    const scrollAll = () => {
+      document
+        .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
+        .forEach((el) => {
+          el.scrollTop = el.scrollHeight;
+        });
+    };
+    Keyboard.addListener("keyboardWillShow", (info) => {
+      const kbd = info.keyboardHeight + PREDICTIVE_BAR_PX;
+      root.style.setProperty("--kbd-h", `${kbd}px`);
       root.style.setProperty("--safe-b", "0px");
     });
-    Keyboard.addListener("keyboardDidShow", () => {
-      requestAnimationFrame(() => {
-        document
-          .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
-          .forEach((el) => {
-            el.scrollTop = el.scrollHeight;
-          });
-      });
+    Keyboard.addListener("keyboardDidShow", (info) => {
+      const kbd = info.keyboardHeight + PREDICTIVE_BAR_PX;
+      root.style.setProperty("--kbd-h", `${kbd}px`);
+      requestAnimationFrame(scrollAll);
+      setTimeout(scrollAll, 250);
     });
     Keyboard.addListener("keyboardWillHide", () => {
-      const safeB = window.innerHeight >= 900 ? "34px" : "34px";
-      root.style.setProperty("--safe-b", safeB);
+      root.style.setProperty("--kbd-h", "0px");
+      root.style.setProperty("--safe-b", "34px");
     });
   } catch (e) {
     console.warn("[guildenstern] keyboard init failed", e);

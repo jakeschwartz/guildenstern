@@ -17,7 +17,9 @@ export async function initKeyboardIfNative() {
     // bottom offset, so it rides above the keyboard automatically.
     // KeyboardResize.None — we don't want iOS shrinking the body or
     // doing its own scroll-into-view since we handle everything in CSS.
-    const PREDICTIVE_BAR_PX = 45;
+    // Accessory bar is hidden above, so info.keyboardHeight is the real
+    // keyboard height — no buffer needed.
+    const PREDICTIVE_BAR_PX = 0;
     const root = document.documentElement;
     const scrollAll = () => {
       document

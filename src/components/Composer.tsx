@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type Props = {
   onSend: (body: string) => void;
@@ -9,11 +9,19 @@ type Props = {
 // via --kbd-h (set in lib/keyboard from Keyboard plugin events).
 export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // After submit, iOS dismisses the keyboard by default. Re-focus the
+  // textarea so the keyboard stays open and the user can keep typing
+  // (iMessage-style conversation mode).
+  const keepKeyboardOpen = () => {
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
   const submit = () => {
     const trimmed = value.trim();
     if (!trimmed) return;
     onSend(trimmed);
     setValue("");
+    keepKeyboardOpen();
   };
   const scrollThreadsToBottom = () => {
     document
@@ -39,6 +47,7 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
       }}
     >
       <textarea
+        ref={inputRef}
         value={value}
         cols={1}
         onFocus={() => {
@@ -51,6 +60,7 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
             if (trimmed) {
               onSend(trimmed);
               setValue("");
+              keepKeyboardOpen();
               return;
             }
           }

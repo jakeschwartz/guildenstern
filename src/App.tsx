@@ -7,6 +7,7 @@ import { PartnershipThread } from "./views/PartnershipThread";
 import { PersonalThread } from "./views/PersonalThread";
 import { Login } from "./views/Login";
 import { Onboarding } from "./views/Onboarding";
+import { InvitePartner } from "./views/InvitePartner";
 import { useStore, useHydrateFromSession } from "./state/store";
 import { useSession, signOut } from "./lib/auth";
 import { registerPushIfNative } from "./lib/push";
@@ -47,6 +48,7 @@ export const App = () => {
 
   const [route, setRoute] = useState<Route>({ name: "inbox" });
   const [menuOpen, setMenuOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
 
   // --- gates ---
@@ -140,6 +142,22 @@ export const App = () => {
           <li>
             <button
               onClick={() => {
+                setMenuOpen(false);
+                setInviteOpen(true);
+              }}
+              className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
+            >
+              <div className="text-[15px] font-semibold text-ink tracking-tight">
+                Invite a partner
+              </div>
+              <div className="text-[12.5px] text-muted mt-0.5">
+                Get a code to share
+              </div>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
                 setThemeIndicator(toggleTheme());
               }}
               className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors flex items-center justify-between gap-3"
@@ -171,6 +189,10 @@ export const App = () => {
             </button>
           </li>
         </ul>
+      </Sheet>
+
+      <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
+        <InvitePartner onClose={() => setInviteOpen(false)} />
       </Sheet>
     </Frame>
   );

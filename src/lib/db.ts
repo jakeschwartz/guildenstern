@@ -106,6 +106,25 @@ export async function createInvite(partnershipId: string): Promise<Invite> {
   return data as Invite;
 }
 
+// Find the freshest unredeemed invite for a partnership (so we can show it
+// in the UI instead of always generating a new one).
+export async function getOrCreateInvite(
+  partnershipId: string,
+): Promise<Invite> {
+  const { data: existing, error: readErr } = await supabase
+    .from("partnership_invites")
+    .select("*")
+    .eq("partnership_id", partnershipId)
+    .is("redeemed_by", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (readErr) throw readErr;
+  if (existing) return existing as Invite;
+  return createInvite(partnershipId);
+}
+
 // Redeem flow uses a security-definer RPC (added in a later migration) so that
 // the redeemer can look up by code without having read access to all invites.
 export async function redeemInvite(code: string): Promise<string> {

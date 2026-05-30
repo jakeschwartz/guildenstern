@@ -91,7 +91,14 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
         ref={scrollRef}
         data-thread-scroll="true"
         className="flex-1 overflow-y-auto pt-5 flex flex-col gap-5 min-h-0"
-        style={{ paddingLeft: 24, paddingRight: 24 }}
+        style={{
+          // Bigger horizontal padding to stay clear of iPhone display
+          // rounded corner clipping zone (~25pt).
+          paddingLeft: 32,
+          paddingRight: 32,
+          paddingBottom:
+            "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+        }}
       >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">

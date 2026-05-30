@@ -135,7 +135,12 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
         ref={scrollRef}
         data-thread-scroll="true"
         className="flex-1 overflow-y-auto pt-4 flex flex-col gap-4 min-h-0"
-        style={{ paddingLeft: 24, paddingRight: 24 }}
+        style={{
+          paddingLeft: 32,
+          paddingRight: 32,
+          paddingBottom:
+            "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+        }}
       >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">

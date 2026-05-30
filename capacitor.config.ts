@@ -17,12 +17,13 @@ const config: CapacitorConfig = {
   },
   plugins: {
     Keyboard: {
-      // body: iOS shrinks document.body when keyboard opens. Our flex layout
-      // fills body (h-full), so PhoneFrame naturally shrinks above the
-      // keyboard. Composer is the last flex item; rises with body.
-      resize: "body",
+      // none: iOS does NOT shrink body or auto-adjust anything. WebView
+      // stays at full device size always (no oscillation between
+      // 440×956 and 398×866). We track --kbd-h from plugin events and
+      // position:fixed the composer with bottom: calc(--kbd-h + --safe-b).
+      resize: "none",
       style: "DARK",
-      resizeOnFullScreen: true,
+      resizeOnFullScreen: false,
     },
   },
 };

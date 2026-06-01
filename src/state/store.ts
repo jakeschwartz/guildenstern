@@ -26,7 +26,10 @@ import type {
   User,
 } from "../types";
 
-type Status = "idle" | "loading" | "ready" | "no_partnership" | "error";
+// Status flow is just the lifecycle of the auth+hydrate cycle. There is no
+// longer a "no_partnership" state — the app works for solo users with just
+// their Mira thread. Partnerships are additive, not gating. See App.tsx.
+type Status = "idle" | "loading" | "ready" | "error";
 
 type State = {
   status: Status;
@@ -256,7 +259,7 @@ export const hydrate = async (session: Session) => {
     }
 
     setState({
-      status: partnerships.length === 0 ? "no_partnership" : "ready",
+      status: "ready",
       currentUserId: session.user.id,
       users: [profileToUser(me), ...partnerProfiles],
       partnerships: partnershipShapes,

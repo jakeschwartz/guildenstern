@@ -185,3 +185,15 @@ export const previewState = {
   partnerships: [partnership],
   threads: [personalThread, partnershipThread],
 };
+
+// Empty-inbox preview: signed-in user with only their personal Mira thread
+// and zero partnerships. Validates the decoupled flow (Mira-as-home,
+// partnership-is-additive) and the empty-state copy in ThreadList.
+export const previewStateSolo = {
+  status: "ready" as const,
+  error: null,
+  currentUserId: ME_ID,
+  users: [me],
+  partnerships: [],
+  threads: [personalThread],
+};

@@ -6,15 +6,22 @@ import { ThreadList } from "./views/ThreadList";
 import { PartnershipThread } from "./views/PartnershipThread";
 import { PersonalThread } from "./views/PersonalThread";
 import { Login } from "./views/Login";
-import { Onboarding } from "./views/Onboarding";
 import { InvitePartner } from "./views/InvitePartner";
 import { JoinPartnership } from "./views/JoinPartnership";
-import { seedDevState, useStore, useHydrateFromSession } from "./state/store";
+import {
+  hydrate,
+  seedDevState,
+  useStore,
+  useHydrateFromSession,
+} from "./state/store";
 import { useSession, signOut } from "./lib/auth";
 import { registerPushIfNative } from "./lib/push";
 import { getTheme, toggleTheme } from "./lib/theme";
+import { supabase } from "./lib/supabase";
+import * as db from "./lib/db";
 import {
   previewState,
+  previewStateSolo,
   PREVIEW_PARTNERSHIP_THREAD_ID,
 } from "./dev/previewSeed";
 
@@ -48,6 +55,8 @@ const previewHash =
 
 if (previewHash === "ops") {
   seedDevState(previewState);
+} else if (previewHash === "inbox-solo") {
+  seedDevState(previewStateSolo);
 }
 
 export const App = () => {
@@ -64,6 +73,20 @@ export const App = () => {
       </Frame>
     );
   }
+  // Hash route: render the inbox with a solo (no-partnership) seed so we can
+  // see Mira-only state + the "No partnerships yet" empty hint.
+  if (previewHash === "inbox-solo") {
+    return (
+      <Frame>
+        <ThreadList
+          onOpen={() => {}}
+          onNew={() => {}}
+          onFilter={() => {}}
+          onMenu={() => {}}
+        />
+      </Frame>
+    );
+  }
 
   const session = useSession();
   useHydrateFromSession(session);
@@ -74,7 +97,34 @@ export const App = () => {
   const status = useStore((s) => s.status);
   const errorMsg = useStore((s) => s.error);
   const threads = useStore((s) => s.threads);
+  const partnerships = useStore((s) => s.partnerships);
   const currentUserId = useStore((s) => s.currentUserId);
+
+  // Poll for partner-joined when we have any partnership with only ourselves
+  // in it (i.e. invite sent, not yet redeemed). When the second member shows
+  // up, rehydrate so the inbox reflects the new state. Idle when no such
+  // partnership exists — costs nothing in steady state.
+  const hasPendingInvite = partnerships.some(
+    (p) => p.participantIds[1] === currentUserId,
+  );
+  useEffect(() => {
+    if (!hasPendingInvite) return;
+    const interval = setInterval(async () => {
+      try {
+        for (const p of partnerships) {
+          const members = await db.getPartnershipMembers(p.id);
+          if (members.length >= 2) {
+            const { data } = await supabase.auth.getSession();
+            if (data.session) await hydrate(data.session);
+            return;
+          }
+        }
+      } catch {
+        // transient network error; try again next tick
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [hasPendingInvite, partnerships]);
 
   const [route, setRoute] = useState<Route>({ name: "inbox" });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -117,9 +167,6 @@ export const App = () => {
         </div>
       </Frame>
     );
-  }
-  if (status === "no_partnership") {
-    return <Frame><Onboarding /></Frame>;
   }
 
   // --- main routing ---

@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react";
-import { useStore } from "../state/store";
+import {
+  createMyPartnership,
+  hydrate,
+  useStore,
+} from "../state/store";
+import { supabase } from "../lib/supabase";
 import * as db from "../lib/db";
 
 type Props = {
   onClose: () => void;
 };
 
-// Reuse-an-existing OR create-new invite for the user's first partnership.
-// For v0 we assume one partnership per user.
+// One-tap "give me a code to share" for the partnership flow. If the user has
+// no partnership yet, we auto-create one and then mint the invite — the user
+// just wanted a code to send, no reason to make them confirm a separate
+// "create partnership" step.
 export const InvitePartner = ({ onClose }: Props) => {
   const partnerships = useStore((s) => s.partnerships);
   const [code, setCode] = useState<string | null>(null);
@@ -15,13 +22,29 @@ export const InvitePartner = ({ onClose }: Props) => {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (partnerships.length === 0) {
-      setError("No partnership yet — create one from Onboarding first.");
-      return;
-    }
-    db.getOrCreateInvite(partnerships[0]!.id)
-      .then((inv) => setCode(inv.code))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    let cancelled = false;
+    const run = async () => {
+      try {
+        let partnershipId = partnerships[0]?.id;
+        if (!partnershipId) {
+          partnershipId = await createMyPartnership();
+          // Rehydrate so the new partnership shows up in the inbox while the
+          // user waits on the code screen.
+          const { data } = await supabase.auth.getSession();
+          if (data.session) await hydrate(data.session);
+        }
+        const inv = await db.getOrCreateInvite(partnershipId);
+        if (!cancelled) setCode(inv.code);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [partnerships]);
 
   const onCopy = async () => {

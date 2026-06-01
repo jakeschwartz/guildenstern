@@ -98,6 +98,14 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
             />
           );
         })}
+        {partnershipThreads.length === 0 && personalThread && (
+          <div className="px-5 py-8 text-center text-[12.5px] text-muted leading-relaxed">
+            No partnerships yet.
+            <br />
+            Tap <span className="text-ink font-semibold">Menu</span> to invite
+            someone or join with a code.
+          </div>
+        )}
         {partnershipThreads.length === 0 && !personalThread && (
           <div className="px-5 py-10 text-center text-[12.5px] text-muted">
             No threads yet.

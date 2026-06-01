@@ -27,6 +27,23 @@ export type BriefingItem = {
   threadId?: ThreadId;
 };
 
+// Calendar conflict between a newly-tracked item and an existing event on one
+// of the partners' calendars. Discovered by Otis at burst time when Google
+// Calendar access is connected. Attached both to the ops_card (so it persists
+// in the Sheet queue) and to the Otis message that flagged it (so the chat
+// reads loudly inline).
+export type Conflict = {
+  // The owner of the calendar this conflict was found on. Almost always the
+  // owner of the new card.
+  calendarOwnerId: UserId;
+  // The existing event we collided with.
+  eventTitle: string;
+  eventStart: number; // ms epoch
+  eventEnd: number; // ms epoch
+  // Human-readable rendition of the new item's proposed time.
+  proposedWhen: string;
+};
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
@@ -36,6 +53,10 @@ export type Message = {
     title: string;
     items: BriefingItem[];
   };
+  // Conflicts Otis discovered when echoing a burst. Each callout pairs the
+  // newly-tracked item's title with the existing event it collided with, so
+  // the chat can render the conflict inline below the structured echo.
+  conflictCallouts?: Array<{ itemTitle: string; conflict: Conflict }>;
   foldGroupId?: string;
   foldSummary?: string;
 };
@@ -54,6 +75,10 @@ export type OpsCard = {
   sourceMessageId: MessageId;
   sourceUserId: UserId;
   createdAt: number;
+  // Optional: existing calendar event this card's proposed time conflicts
+  // with. Surfaced as a ⚠ indicator in the Sheet row with a tap-to-expand
+  // resolution menu.
+  conflictWith?: Conflict;
 };
 
 export type Partnership = {

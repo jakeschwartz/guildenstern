@@ -154,15 +154,29 @@ const subscribeThread = (threadId: string) => {
   // edge function inserts them ahead of the "Got it — …" echo, so by the time
   // the recipient reacts to the push, their queue is already populated.
   realtimeUnsubs.push(
-    db.subscribeToThreadOpsCards(threadId, (row) => {
-      const card = opsCardRowToOpsCard(row);
-      const threads = state.threads.map((t) => {
-        if (t.id !== threadId || t.kind !== "partnership") return t;
-        if (t.opsCards.some((c) => c.id === card.id)) return t;
-        return { ...t, opsCards: [...t.opsCards, card] };
-      });
-      setState({ threads });
-    }),
+    db.subscribeToThreadOpsCards(
+      threadId,
+      (row) => {
+        const card = opsCardRowToOpsCard(row);
+        const threads = state.threads.map((t) => {
+          if (t.id !== threadId || t.kind !== "partnership") return t;
+          if (t.opsCards.some((c) => c.id === card.id)) return t;
+          return { ...t, opsCards: [...t.opsCards, card] };
+        });
+        setState({ threads });
+      },
+      (row) => {
+        const card = opsCardRowToOpsCard(row);
+        const threads = state.threads.map((t) => {
+          if (t.id !== threadId || t.kind !== "partnership") return t;
+          return {
+            ...t,
+            opsCards: t.opsCards.map((c) => (c.id === card.id ? card : c)),
+          };
+        });
+        setState({ threads });
+      },
+    ),
   );
 };
 
@@ -263,6 +277,14 @@ export const reset = () => {
   emit();
 };
 
+// Dev-only: hard-seed the store with a fabricated state for UI iteration.
+// Used by #preview-* hash routes in App.tsx so we can render real components
+// against realistic data without a backend round-trip. Never call from prod.
+export const seedDevState = (next: Partial<State>) => {
+  state = { ...initial, ...next };
+  emit();
+};
+
 // ---------- mutations ----------
 
 export const sendMessage = async (threadId: string, body: string) => {
@@ -314,6 +336,72 @@ export const createInviteForPartnership = async (
 export const redeemInviteCode = async (code: string): Promise<string> => {
   const partnershipId = await db.redeemInvite(code);
   return partnershipId;
+};
+
+// ---------- ops cards ----------
+
+// Optimistic local update + persist. Realtime UPDATE will reconcile, but we
+// flip the UI immediately so the tap feels instant.
+export const setOpsCardStatus = async (
+  threadId: string,
+  cardId: string,
+  status: "pending" | "done" | "deferred",
+) => {
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      opsCards: t.opsCards.map((c) =>
+        c.id === cardId ? { ...c, status } : c,
+      ),
+    };
+  });
+  setState({ threads });
+  try {
+    await db.updateOpsCardStatus(cardId, status);
+  } catch (e) {
+    console.error("[guildenstern] setOpsCardStatus failed", e);
+  }
+};
+
+// Re-file by ownership: flip the card to the other partner. Caller passes the
+// new owner id directly so this stays purely a mutation.
+export const setOpsCardOwner = async (
+  threadId: string,
+  cardId: string,
+  ownerId: string,
+) => {
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      opsCards: t.opsCards.map((c) =>
+        c.id === cardId ? { ...c, owner: ownerId } : c,
+      ),
+    };
+  });
+  setState({ threads });
+  try {
+    await db.updateOpsCardOwner(cardId, ownerId);
+  } catch (e) {
+    console.error("[guildenstern] setOpsCardOwner failed", e);
+  }
+};
+
+// Dismiss the calendar conflict on a card (user chose to keep it as-is, move
+// the time manually, or otherwise resolve). Local-only for now; once we wire
+// real backend, this will also clear the conflict marker on the persisted row.
+export const dismissOpsCardConflict = (threadId: string, cardId: string) => {
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      opsCards: t.opsCards.map((c) =>
+        c.id === cardId ? { ...c, conflictWith: undefined } : c,
+      ),
+    };
+  });
+  setState({ threads });
 };
 
 // ---------- React glue ----------

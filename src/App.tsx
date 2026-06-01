@@ -8,10 +8,15 @@ import { PersonalThread } from "./views/PersonalThread";
 import { Login } from "./views/Login";
 import { Onboarding } from "./views/Onboarding";
 import { InvitePartner } from "./views/InvitePartner";
-import { useStore, useHydrateFromSession } from "./state/store";
+import { JoinPartnership } from "./views/JoinPartnership";
+import { seedDevState, useStore, useHydrateFromSession } from "./state/store";
 import { useSession, signOut } from "./lib/auth";
 import { registerPushIfNative } from "./lib/push";
 import { getTheme, toggleTheme } from "./lib/theme";
+import {
+  previewState,
+  PREVIEW_PARTNERSHIP_THREAD_ID,
+} from "./dev/previewSeed";
 
 // Home is now the inbox per v4 spec §0. Tapping into Mira's pinned row opens
 // the personal thread; tapping a partnership row opens that.
@@ -34,7 +39,32 @@ const Frame = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+// Dev preview hash routes. Read once at module init; we seed the store before
+// any component mounts so useStore selectors get the mocked data on first render.
+const previewHash =
+  typeof window !== "undefined" && window.location.hash.startsWith("#preview-")
+    ? window.location.hash.slice("#preview-".length)
+    : null;
+
+if (previewHash === "ops") {
+  seedDevState(previewState);
+}
+
 export const App = () => {
+  // Hash route: render the partnership thread against seeded mock data.
+  // Bypasses auth + hydration. Useful for UI iteration on this machine
+  // without a real Supabase session (or in the Claude preview tool).
+  if (previewHash === "ops") {
+    return (
+      <Frame>
+        <PartnershipThread
+          threadId={PREVIEW_PARTNERSHIP_THREAD_ID}
+          onBack={() => {}}
+        />
+      </Frame>
+    );
+  }
+
   const session = useSession();
   useHydrateFromSession(session);
   useEffect(() => {
@@ -49,6 +79,7 @@ export const App = () => {
   const [route, setRoute] = useState<Route>({ name: "inbox" });
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
 
   // --- gates ---
@@ -158,6 +189,22 @@ export const App = () => {
           <li>
             <button
               onClick={() => {
+                setMenuOpen(false);
+                setJoinOpen(true);
+              }}
+              className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
+            >
+              <div className="text-[15px] font-semibold text-ink tracking-tight">
+                Enter an invite code
+              </div>
+              <div className="text-[12.5px] text-muted mt-0.5">
+                Join a partnership with someone else's code
+              </div>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
                 setThemeIndicator(toggleTheme());
               }}
               className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors flex items-center justify-between gap-3"
@@ -193,6 +240,13 @@ export const App = () => {
 
       <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
         <InvitePartner onClose={() => setInviteOpen(false)} />
+      </Sheet>
+
+      <Sheet open={joinOpen} onClose={() => setJoinOpen(false)}>
+        <JoinPartnership
+          variant="sheet"
+          onDone={() => setJoinOpen(false)}
+        />
       </Sheet>
     </Frame>
   );

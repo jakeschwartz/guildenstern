@@ -326,9 +326,21 @@ export async function updateOpsCardStatus(
   if (error) throw error;
 }
 
+export async function updateOpsCardOwner(
+  cardId: string,
+  ownerId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("ops_cards")
+    .update({ owner_id: ownerId })
+    .eq("id", cardId);
+  if (error) throw error;
+}
+
 export function subscribeToThreadOpsCards(
   threadId: string,
   onInsert: (row: OpsCardRow) => void,
+  onUpdate?: (row: OpsCardRow) => void,
 ) {
   const channel = supabase
     .channel(`ops_cards:${threadId}`)
@@ -341,6 +353,16 @@ export function subscribeToThreadOpsCards(
         filter: `thread_id=eq.${threadId}`,
       },
       (payload) => onInsert(payload.new as OpsCardRow),
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "ops_cards",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => onUpdate?.(payload.new as OpsCardRow),
     )
     .subscribe();
   return () => {

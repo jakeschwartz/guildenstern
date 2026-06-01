@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   createInviteForPartnership,
   createMyPartnership,
@@ -7,6 +7,7 @@ import {
 } from "../state/store";
 import { signOut } from "../lib/auth";
 import { supabase } from "../lib/supabase";
+import * as db from "../lib/db";
 
 // Supabase errors aren't Error instances; they're plain objects with
 // { message, code, details, hint }. Format them readably.
@@ -38,6 +39,32 @@ export const Onboarding = () => {
     const { data } = await supabase.auth.getSession();
     if (data.session) await hydrate(data.session);
   };
+
+  // While we're sitting on the onboarding screen (often: Jake on show-code
+  // waiting for Jenny to redeem), poll for partnership membership reaching 2.
+  // When it does, rehydrate so App.tsx flips to the inbox automatically.
+  // We deliberately don't rehydrate on partnerships.length > 0 alone — Jake's
+  // freshly-created partnership has only him in it, and we want him to stay
+  // on the show-code screen until Jenny actually joins.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const ps = await db.getMyPartnerships();
+        if (ps.length === 0) return;
+        for (const p of ps) {
+          const members = await db.getPartnershipMembers(p.id);
+          if (members.length >= 2) {
+            const { data } = await supabase.auth.getSession();
+            if (data.session) await hydrate(data.session);
+            return;
+          }
+        }
+      } catch {
+        // Transient network errors during polling are non-fatal; try again.
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const onCreate = async () => {
     setBusy(true);

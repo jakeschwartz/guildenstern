@@ -1,6 +1,8 @@
 // Human-message renderer. Agent messages use Voice (rule + coded header,
-// not a bubble) and are rendered by callers directly — this file only
-// handles human bubbles now.
+// not a bubble). PersonalThread renders Mira's voice directly; this file's
+// agent branch is hit only from PartnershipThread, where the agent is
+// Otis (the scribe in shared rooms) per UX_SPEC §1. Mira never appears
+// here — she's private-only.
 
 import type { Message, User } from "../types";
 import { formatClock } from "../lib/time";
@@ -14,14 +16,11 @@ type Props = {
 
 export const MessageBubble = ({ message, author, isSelf }: Props) => {
   if (message.author.kind === "agent") {
-    // Default voice mapping for v0: agent = Mira/concierge. When we add
-    // shared rooms with Otis or specialists, the row will carry an explicit
-    // voice marker (column on messages) and we'll branch here.
     return (
       <Voice
-        voice="mira"
-        name="Mira"
-        role="concierge"
+        voice="otis"
+        name="Otis"
+        role="scribe"
         body={message.body}
         timestamp={formatClock(message.createdAt)}
       />

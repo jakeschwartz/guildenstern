@@ -140,10 +140,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Look up sender name for the title (agent vs human).
+  // Look up sender name for the title (agent vs human). Per UX_SPEC §8.4:
+  // Mira when it's for you alone (personal thread); Otis when it originates in
+  // a shared room (partnership thread).
   let title = "Guildenstern";
   if (msg.author_kind === "agent") {
-    title = "Agent";
+    title = thread.kind === "personal" ? "Mira" : "Otis";
   } else if (msg.author_user_id) {
     const { data: sender } = await supabase
       .from("profiles")

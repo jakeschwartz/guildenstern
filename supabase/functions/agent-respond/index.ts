@@ -47,7 +47,7 @@ For single items or questions, respond conversationally — one or two short sen
 
 Return only valid JSON matching the tool schema. Do not chat outside the schema. Do not preface.`;
 
-const SYSTEM_PROMPT_PARTNERSHIP = `You are the agent inside Guildenstern, a two-person partnership inbox. Each partnership thread is a buffer between two people. Your job in this thread is to be the asynchronous double-buffer between them.
+const SYSTEM_PROMPT_PARTNERSHIP = `You are Otis — the scribe in a Guildenstern partnership thread. Each partnership thread is a two-person buffer; your job is to be the asynchronous double-buffer between them. You only appear in shared rooms; you never see private thoughts.
 
 CRITICAL DECISION you make on every incoming human message: is this a BURST (trackable items the recipient will need to act on or remember), or a DIRECT message (emotional, conversational, or a single in-the-moment reply that should ride through untouched)?
 
@@ -59,7 +59,10 @@ If DIRECT, you stay completely silent. Do not respond.
 
 If BURST, you respond with a structured echo in the partner's voice. Format: "Got it — A, B, C. Sound right?" — verbatim ending.
 
-Items: short noun phrases, in order, max 6. Strip filler. Keep critical timing attached.
+For each item, also extract:
+  - title: short noun phrase, in order, max 6 items. Strip filler. Keep critical timing in the title only if it reads naturally ("call contractor Thursday" → title "call contractor", when_label "Thursday").
+  - when_label: timing extracted from the message ("today", "tonight", "tomorrow", a weekday name, "this week", "next week", or "ongoing" if no timing is given). Keep it short.
+  - bucket: "today" (today/tomorrow/imminent), "week" (this week or named weekday in the next 7 days), "ongoing" (recurring or no specific deadline), "long" (beyond this week).
 
 CRITICAL: NEVER drop an item silently. Prefer noisy mis-routing over silent drop.
 
@@ -157,9 +160,30 @@ Deno.serve(async (req) => {
               },
               items: {
                 type: "array",
-                items: { type: "string" },
                 description:
-                  "If burst: 1-6 short item phrases in order. Otherwise: empty.",
+                  "If burst: 1-6 items in order. Otherwise: empty array.",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: {
+                      type: "string",
+                      description:
+                        "Short noun phrase. Strip filler. Keep timing in when_label, not here.",
+                    },
+                    when_label: {
+                      type: "string",
+                      description:
+                        "Timing extracted from the message: 'today', 'tonight', 'tomorrow', a weekday, 'this week', 'next week', or 'ongoing' if none specified.",
+                    },
+                    bucket: {
+                      type: "string",
+                      enum: ["today", "week", "ongoing", "long"],
+                      description:
+                        "today = today/tomorrow/imminent. week = this week. ongoing = recurring or no deadline. long = beyond this week.",
+                    },
+                  },
+                  required: ["title", "when_label", "bucket"],
+                },
               },
             },
             required: ["respond", "kind", "ack", "items"],
@@ -189,10 +213,15 @@ Deno.serve(async (req) => {
     return new Response("no decision", { status: 200 });
   }
 
+  type BurstItem = {
+    title: string;
+    when_label: string;
+    bucket: "today" | "week" | "ongoing" | "long";
+  };
   const decision = toolUse.input as {
     respond: boolean;
     kind: "burst" | "conversational";
-    items: string[];
+    items: BurstItem[];
     ack: string;
   };
 
@@ -200,6 +229,48 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ silent: true }), {
       headers: { "content-type": "application/json" },
     });
+  }
+
+  // Insert ops_cards FIRST (partnership-thread bursts only). Doing it before the
+  // agent message means by the time the recipient's app reacts to the agent
+  // push, the queue is already populated.
+  let cardsInserted = 0;
+  if (
+    decision.kind === "burst" &&
+    decision.items.length > 0 &&
+    thread.kind === "partnership" &&
+    thread.partnership_id &&
+    msg.author_user_id
+  ) {
+    const { data: members, error: mErr } = await supabase
+      .from("partnership_members")
+      .select("user_id")
+      .eq("partnership_id", thread.partnership_id);
+    if (mErr) {
+      console.error("[agent-respond] partnership_members read failed", mErr);
+    }
+    const otherPartnerId = (members ?? [])
+      .map((m) => m.user_id)
+      .find((id) => id !== msg.author_user_id);
+    // If there's no second member yet (invite not redeemed), default the
+    // owner to the sender so the cards aren't orphaned. They'll re-route later.
+    const ownerId = otherPartnerId ?? msg.author_user_id;
+    const rows = decision.items.map((it) => ({
+      thread_id: msg.thread_id,
+      source_message_id: msg.id,
+      source_user_id: msg.author_user_id,
+      title: it.title,
+      subtitle: null,
+      owner_id: ownerId,
+      when_label: it.when_label || "today",
+      bucket: it.bucket || "today",
+    }));
+    const { error: cardErr } = await supabase.from("ops_cards").insert(rows);
+    if (cardErr) {
+      console.error("[agent-respond] ops_cards insert failed", cardErr);
+    } else {
+      cardsInserted = rows.length;
+    }
   }
 
   // Insert the structured echo as an agent message in the same thread.
@@ -215,7 +286,11 @@ Deno.serve(async (req) => {
   }
 
   return new Response(
-    JSON.stringify({ silent: false, items: decision.items }),
+    JSON.stringify({
+      silent: false,
+      items: decision.items,
+      cards_inserted: cardsInserted,
+    }),
     { headers: { "content-type": "application/json" } },
   );
 });

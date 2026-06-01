@@ -325,3 +325,25 @@ export async function updateOpsCardStatus(
     .eq("id", cardId);
   if (error) throw error;
 }
+
+export function subscribeToThreadOpsCards(
+  threadId: string,
+  onInsert: (row: OpsCardRow) => void,
+) {
+  const channel = supabase
+    .channel(`ops_cards:${threadId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "ops_cards",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => onInsert(payload.new as OpsCardRow),
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}

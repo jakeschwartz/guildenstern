@@ -150,6 +150,20 @@ const subscribeThread = (threadId: string) => {
       setState({ threads });
     }),
   );
+  // Partnership-thread ops_cards land here in realtime too — the agent-respond
+  // edge function inserts them ahead of the "Got it — …" echo, so by the time
+  // the recipient reacts to the push, their queue is already populated.
+  realtimeUnsubs.push(
+    db.subscribeToThreadOpsCards(threadId, (row) => {
+      const card = opsCardRowToOpsCard(row);
+      const threads = state.threads.map((t) => {
+        if (t.id !== threadId || t.kind !== "partnership") return t;
+        if (t.opsCards.some((c) => c.id === card.id)) return t;
+        return { ...t, opsCards: [...t.opsCards, card] };
+      });
+      setState({ threads });
+    }),
+  );
 };
 
 export const hydrate = async (session: Session) => {
@@ -201,7 +215,10 @@ export const hydrate = async (session: Session) => {
     for (const p of partnerships) {
       let rows = await db.getThreadsForPartnership(p.id);
       if (rows.length === 0) {
-        const created = await db.createPartnershipThread(p.id, "Default", true);
+        // Title is hidden in UI when is_default=true, but the DB row reads
+        // cleaner as "Shared" than "Default" — and if the partner hasn't
+        // joined yet, the inbox falls back to t.title.
+        const created = await db.createPartnershipThread(p.id, "Shared", true);
         rows = [created];
       }
       for (const r of rows) {

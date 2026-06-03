@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { PhoneFrame } from "./components/PhoneFrame";
 import { Sheet } from "./components/Sheet";
-import { DebugOverlay } from "./components/DebugOverlay";
 import { ThreadList } from "./views/ThreadList";
 import { PartnershipThread } from "./views/PartnershipThread";
 import { PersonalThread } from "./views/PersonalThread";
@@ -140,27 +139,16 @@ export const App = () => {
     setJoinOpen(false);
   };
 
-  const dbg = (
-    <DebugOverlay
-      session={session}
-      menuOpen={menuOpen}
-      inviteOpen={inviteOpen}
-      joinOpen={joinOpen}
-      route={route.name}
-    />
-  );
-
   // --- gates ---
   if (session === "loading") {
-    return <Frame>{dbg}<div className="h-full w-full" /></Frame>;
+    return <Frame><div className="h-full w-full" /></Frame>;
   }
   if (session === null) {
-    return <Frame>{dbg}<Login /></Frame>;
+    return <Frame><Login /></Frame>;
   }
   if (status === "idle" || status === "loading") {
     return (
       <Frame>
-        {dbg}
         <div className="h-full w-full flex items-center justify-center text-[12.5px] text-muted">
           Loading…
         </div>
@@ -170,7 +158,6 @@ export const App = () => {
   if (status === "error") {
     return (
       <Frame>
-        {dbg}
         <div className="h-full w-full flex flex-col items-center justify-center px-6 text-center gap-3">
           <div className="text-[13px] text-attention">Something went wrong</div>
           {errorMsg && (
@@ -203,7 +190,6 @@ export const App = () => {
 
   return (
     <Frame>
-      {dbg}
       {route.name === "inbox" && (
         <ThreadList
           onOpen={openThread}

@@ -109,6 +109,18 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
     partner?.name ?? "them",
   );
 
+  // Group cards by their source message so we can render them inline as a
+  // "routed burst" at the message's position in the thread (per-party render).
+  const cardsByMessage = useMemo(() => {
+    const map = new Map<string, OpsCard[]>();
+    for (const c of thread.opsCards) {
+      const arr = map.get(c.sourceMessageId);
+      if (arr) arr.push(c);
+      else map.set(c.sourceMessageId, [c]);
+    }
+    return map;
+  }, [thread.opsCards]);
+
   return (
     <div className="flex flex-col h-full">
       <ThreadAnchor onBack={onBack} onExpand={() => setSheetOpen(true)}>
@@ -167,6 +179,26 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
               : null;
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
+          // Per-party rendering: if this is the partner's message AND it
+          // produced ops cards, the reader sees the routed cards (Mira's
+          // summary) instead of the raw burst text. The sender still sees
+          // their own bubble — they wrote the riff, we don't re-summarize it
+          // back at them. See UX_SPEC §3.07.
+          const cardsFromThis = cardsByMessage.get(m.id);
+          if (!isSelf && cardsFromThis && cardsFromThis.length > 0) {
+            return (
+              <RoutedBurst
+                key={m.id}
+                cards={cardsFromThis}
+                author={author}
+                timestamp={m.createdAt}
+                currentUserId={currentUserId}
+                partnerId={partnerId}
+                usersById={usersById}
+                threadId={thread.id}
+              />
+            );
+          }
           return (
             <MessageBubble
               key={m.id}
@@ -388,6 +420,162 @@ const OpsQueue = ({
           </div>
         );
       })}
+    </div>
+  );
+};
+
+// ============================================================================
+// RoutedBurst — inline render of a partner's burst, as seen by the receiver.
+// Same data as a chat message, but rendered as the Mira-routed cards instead
+// of the original text. The sender of the burst still sees their own raw
+// text bubble — that asymmetry is the whole point of per-party rendering.
+// (UX_SPEC §3.07 "Mira sorts Jenny's burst into shared household queues.")
+//
+// Inline cards are TRIAGEABLE in place — same toggle/refile affordances as
+// the Sheet OpsQueue. The Sheet stays as the cross-burst consolidated view.
+// ============================================================================
+
+type RoutedBurstProps = {
+  cards: OpsCard[];
+  author: User | null;
+  timestamp: number;
+  currentUserId: string;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+};
+
+const RoutedBurst = ({
+  cards,
+  author,
+  timestamp,
+  currentUserId,
+  partnerId,
+  usersById,
+  threadId,
+}: RoutedBurstProps) => {
+  // Group by bucket within the burst so categorization is legible at a glance.
+  const byBucket: Record<OpsBucket, OpsCard[]> = {
+    today: [],
+    week: [],
+    ongoing: [],
+    long: [],
+  };
+  for (const c of cards) byBucket[c.bucket].push(c);
+  for (const k of BUCKET_ORDER) {
+    byBucket[k].sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  const onToggle = (card: OpsCard) => {
+    void setOpsCardStatus(
+      threadId,
+      card.id,
+      card.status === "done" ? "pending" : "done",
+    );
+  };
+  const onRefile = (card: OpsCard) => {
+    const next = card.owner === currentUserId ? partnerId : currentUserId;
+    if (!next) return;
+    void setOpsCardOwner(threadId, card.id, next);
+  };
+
+  const senderName = author?.name?.split(" ")[0] ?? "they";
+
+  return (
+    <div className="flex flex-col gap-2 -mx-2">
+      <div className="flex items-baseline gap-2 px-2">
+        {author && <Avatar initials={author.initials} size="sm" />}
+        <span className="text-[11.5px] text-muted">
+          Mira sorted {senderName}'s items
+        </span>
+        <span className="ml-auto text-[11px] text-muted">
+          {formatClock(timestamp)}
+        </span>
+      </div>
+      <div className="rounded-2xl border border-rule bg-card/40 px-3 py-2 flex flex-col gap-3">
+        {BUCKET_ORDER.map((bucket) => {
+          const group = byBucket[bucket];
+          if (group.length === 0) return null;
+          return (
+            <div key={bucket}>
+              <div className="smallcaps text-[10px] text-muted mb-1">
+                {BUCKET_LABELS[bucket]}
+              </div>
+              <ul className="divide-y divide-rule/40">
+                {group.map((card) => {
+                  const owner = usersById.get(card.owner);
+                  const ownerInitials = owner?.initials ?? "·";
+                  const isYours = card.owner === currentUserId;
+                  const done = card.status === "done";
+                  return (
+                    <li
+                      key={card.id}
+                      className={`py-2 ${done ? "opacity-50" : ""}`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          onClick={() => onToggle(card)}
+                          aria-label={done ? "Mark pending" : "Mark done"}
+                          className="shrink-0 h-5 w-5 rounded-full border border-rule flex items-center justify-center hover:border-ink transition-colors"
+                        >
+                          {done && (
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              width="12"
+                              height="12"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="text-otis"
+                            >
+                              <polyline points="5 12 10 17 19 8" />
+                            </svg>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => onToggle(card)}
+                          className="flex-1 min-w-0 text-left"
+                        >
+                          <div
+                            className={`text-[13.5px] leading-snug ${
+                              done ? "line-through text-muted" : "text-ink"
+                            }`}
+                          >
+                            <span className="truncate">{card.title}</span>
+                          </div>
+                          {(card.when || card.subtitle) && (
+                            <div className="text-[11px] text-muted mt-0.5">
+                              {card.when}
+                              {card.when && card.subtitle && " · "}
+                              {card.subtitle}
+                            </div>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => onRefile(card)}
+                          aria-label={isYours ? "Send to partner" : "Take it"}
+                          title={isYours ? "Send to partner" : "Take it"}
+                          className={`shrink-0 h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                            isYours
+                              ? "bg-attention-tint text-attention"
+                              : "bg-card text-muted hover:text-ink"
+                          }`}
+                        >
+                          <span>{ownerInitials}</span>
+                          <span aria-hidden className="opacity-50">↻</span>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

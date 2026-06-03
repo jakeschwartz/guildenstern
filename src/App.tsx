@@ -209,7 +209,11 @@ export const App = () => {
         <PartnershipThread threadId={route.threadId} onBack={goInbox} />
       )}
 
-      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>
+      <Sheet
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onForceClose={closeAllSheets}
+      >
         <ul className="divide-y divide-rule border-y border-rule -mx-5">
           <li>
             <button
@@ -292,15 +296,20 @@ export const App = () => {
         </ul>
       </Sheet>
 
-      <Sheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
-        <InvitePartner onClose={() => setInviteOpen(false)} />
+      <Sheet
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onForceClose={closeAllSheets}
+      >
+        <InvitePartner onClose={closeAllSheets} />
       </Sheet>
 
-      <Sheet open={joinOpen} onClose={() => setJoinOpen(false)}>
-        <JoinPartnership
-          variant="sheet"
-          onDone={() => setJoinOpen(false)}
-        />
+      <Sheet
+        open={joinOpen}
+        onClose={() => setJoinOpen(false)}
+        onForceClose={closeAllSheets}
+      >
+        <JoinPartnership variant="sheet" onDone={closeAllSheets} />
       </Sheet>
     </Frame>
   );

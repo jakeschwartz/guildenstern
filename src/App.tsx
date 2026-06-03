@@ -146,6 +146,7 @@ export const App = () => {
       menuOpen={menuOpen}
       inviteOpen={inviteOpen}
       joinOpen={joinOpen}
+      route={route.name}
     />
   );
 

@@ -42,25 +42,27 @@ export const Sheet = ({
     startY.current = null;
   };
 
+  // Belt + suspenders: if open=false, do NOT render the sheet at all. No CSS
+  // transform tricks, no off-screen translate — just unmounted. Eliminates
+  // any "sheet visible despite open=false" failure mode.
+  if (!open) return null;
+
   return (
     <>
       <div
         onClick={close}
         onTouchEnd={close}
-        className={`absolute inset-0 z-30 bg-ink/40 transition-opacity duration-200 ${
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
+        className="absolute inset-0 z-30 bg-ink/40"
       />
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className={`absolute inset-x-0 bottom-0 z-40 bg-paper rounded-t-3xl border-t border-rule shadow-[0_-12px_40px_-12px_rgba(17,17,17,0.25)] ease-out flex flex-col ${
-          dragY === 0 ? "transition-transform duration-200" : ""
-        } ${open ? "translate-y-0" : "translate-y-full"}`}
+        className="absolute inset-x-0 bottom-0 z-40 bg-paper rounded-t-3xl border-t border-rule shadow-[0_-12px_40px_-12px_rgba(17,17,17,0.25)] ease-out flex flex-col"
         style={{
           maxHeight: "85%",
-          transform: open ? `translateY(${dragY}px)` : undefined,
+          transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
+          transition: dragY > 0 ? "none" : "transform 200ms ease-out",
         }}
       >
         <div className="flex items-center justify-center pt-3 pb-1.5 shrink-0">

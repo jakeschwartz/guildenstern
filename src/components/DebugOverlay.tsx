@@ -43,6 +43,7 @@ type Props = {
   menuOpen: boolean;
   inviteOpen: boolean;
   joinOpen: boolean;
+  route?: string;
 };
 
 export const DebugOverlay = ({
@@ -50,6 +51,7 @@ export const DebugOverlay = ({
   menuOpen,
   inviteOpen,
   joinOpen,
+  route,
 }: Props) => {
   const [, force] = useState(0);
   useEffect(() => {
@@ -74,7 +76,7 @@ export const DebugOverlay = ({
         : "active";
 
   const lines = [
-    `sess=${sessionStr} st=${status} uid=${userId?.slice(0, 8) ?? "—"}`,
+    `sess=${sessionStr} st=${status} uid=${userId?.slice(0, 8) ?? "—"} route=${route ?? "?"}`,
     `parts=${partnerships.length} thr=${threads.length} m=${+menuOpen} i=${+inviteOpen} j=${+joinOpen}`,
     error ? `ERR: ${error.slice(0, 80)}` : null,
     ...errs.slice(0, 2).map((e) => `${e.msg.slice(0, 90)}`),

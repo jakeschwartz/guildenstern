@@ -27,6 +27,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+
+        // iOS 16.4+: opt the WKWebView into Web Inspector. Off by default in
+        // release builds. Without this, Safari Develop menu shows
+        // "No inspectable contents" for the app.
+        if #available(iOS 16.4, *) {
+            if let bridgeVC = window?.rootViewController as? CAPBridgeViewController {
+                bridgeVC.webView?.isInspectable = true
+            }
+        }
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

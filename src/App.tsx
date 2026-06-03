@@ -131,6 +131,13 @@ export const App = () => {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
+  // Helper so menu item handlers don't leave a previously-open sheet behind
+  // when they open a different one (otherwise three sheets can stack).
+  const closeAllSheets = () => {
+    setMenuOpen(false);
+    setInviteOpen(false);
+    setJoinOpen(false);
+  };
 
   // --- gates ---
   if (session === "loading") {
@@ -220,7 +227,7 @@ export const App = () => {
           <li>
             <button
               onClick={() => {
-                setMenuOpen(false);
+                closeAllSheets();
                 setInviteOpen(true);
               }}
               className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
@@ -236,7 +243,7 @@ export const App = () => {
           <li>
             <button
               onClick={() => {
-                setMenuOpen(false);
+                closeAllSheets();
                 setJoinOpen(true);
               }}
               className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"

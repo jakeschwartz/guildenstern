@@ -70,4 +70,6 @@ xcrun altool --upload-app \
   --apiKey "$APP_STORE_CONNECT_KEY_ID" \
   --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
 
-echo "✓ Build $NEXT_BUILD uploaded. Apple processes for ~10-15 min before it's visible in TestFlight."
+echo "✓ Build $NEXT_BUILD uploaded."
+echo "▶ Waiting for Apple processing then setting Export Compliance + tester groups…"
+node "$ROOT/scripts/asc-post-upload.mjs" "$NEXT_BUILD"

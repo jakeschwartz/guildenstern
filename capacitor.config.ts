@@ -14,6 +14,9 @@ const config: CapacitorConfig = {
     // header off the top of the screen). HTML overflow-y-auto on the
     // messages container still works for content scrolling.
     scrollEnabled: false,
+    // iOS 16.4+: opt the WKWebView into Web Inspector so Safari Develop
+    // menu can see it. Off by default in release builds.
+    webContentsDebuggingEnabled: true,
   },
   plugins: {
     Keyboard: {

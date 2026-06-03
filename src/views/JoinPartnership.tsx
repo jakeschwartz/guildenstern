@@ -136,8 +136,9 @@ export const JoinPartnership = ({
       )}
 
       <button
+        type="button"
         onClick={onDone}
-        className="mt-4 w-full text-[13px] text-muted hover:text-ink"
+        className="mt-4 w-full h-11 rounded-xl border border-rule text-[14px] font-semibold text-ink hover:bg-card/60 transition-colors"
       >
         Cancel
       </button>

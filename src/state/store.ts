@@ -368,8 +368,10 @@ export const setOpsCardStatus = async (
   }
 };
 
-// Re-file by ownership: flip the card to the other partner. Caller passes the
-// new owner id directly so this stays purely a mutation.
+// Pass/Refile: flip the card to the other partner AND reset status to
+// 'pending' so the new owner has to actively accept it. The server-side
+// trigger fires once on this UPDATE and Otis posts the "Jake passed X to
+// Jenny" line in chat.
 export const setOpsCardOwner = async (
   threadId: string,
   cardId: string,
@@ -380,7 +382,9 @@ export const setOpsCardOwner = async (
     return {
       ...t,
       opsCards: t.opsCards.map((c) =>
-        c.id === cardId ? { ...c, owner: ownerId } : c,
+        c.id === cardId
+          ? { ...c, owner: ownerId, status: "pending" as const }
+          : c,
       ),
     };
   });

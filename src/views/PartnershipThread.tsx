@@ -639,7 +639,10 @@ const OpsCardRow = ({
           )}
         </div>
 
-        {/* Right actions: primary (Accept/Done/Undo) + refile pill */}
+        {/* Right actions: primary action(s) + refile pill.
+            Accepted state shows Done (primary, green) + Pass (ghost) — the
+            "oops I actually can't do this" escape hatch lives next to the
+            commitment, so both moves are equally legible. */}
         <div className="shrink-0 flex items-center gap-1.5">
           {isYours && status === "pending" && (
             <button
@@ -650,34 +653,48 @@ const OpsCardRow = ({
             </button>
           )}
           {isYours && status === "accepted" && (
-            <button
-              onClick={onMarkDone}
-              className="h-7 px-2.5 rounded-md bg-otis text-paper text-[11px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
-            >
-              Done
-            </button>
+            <>
+              <button
+                onClick={onMarkDone}
+                className="h-7 px-2.5 rounded-md bg-otis text-paper text-[11px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
+              >
+                Done
+              </button>
+              <button
+                onClick={onRefile}
+                className="h-7 px-2 rounded-md border border-rule text-muted text-[11px] font-semibold tracking-tight hover:text-ink hover:border-ink transition-colors"
+                title="Send back to partner"
+              >
+                Pass
+              </button>
+            </>
           )}
           {isYours && status === "done" && (
             <button
               onClick={onUndo}
               className="text-[10.5px] text-muted hover:text-ink underline transition-colors"
             >
-              Undo
+              Reopen
             </button>
           )}
-          <button
-            onClick={onRefile}
-            aria-label={isYours ? "Send to partner" : "Take it"}
-            title={isYours ? "Send to partner" : "Take it"}
-            className={`h-6 px-1.5 rounded-md flex items-center gap-0.5 text-[9.5px] font-semibold uppercase tracking-wider transition-colors ${
-              isYours
-                ? "bg-card text-muted hover:text-ink"
-                : "bg-attention-tint text-attention hover:opacity-90"
-            }`}
-          >
-            <span>{ownerInitials}</span>
-            <span aria-hidden className="opacity-50">↻</span>
-          </button>
+          {/* Refile pill is the always-available ownership toggle. Shown for
+              non-yours cards so the partner can take ownership, and as a
+              quiet secondary on yours-pending / yours-done. */}
+          {!(isYours && status === "accepted") && (
+            <button
+              onClick={onRefile}
+              aria-label={isYours ? "Send to partner" : "Take it"}
+              title={isYours ? "Send to partner" : "Take it"}
+              className={`h-6 px-1.5 rounded-md flex items-center gap-0.5 text-[9.5px] font-semibold uppercase tracking-wider transition-colors ${
+                isYours
+                  ? "bg-card text-muted hover:text-ink"
+                  : "bg-attention-tint text-attention hover:opacity-90"
+              }`}
+            >
+              <span>{ownerInitials}</span>
+              <span aria-hidden className="opacity-50">↻</span>
+            </button>
+          )}
         </div>
       </div>
       {conflict && !done && (

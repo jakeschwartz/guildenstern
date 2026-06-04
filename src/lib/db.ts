@@ -326,13 +326,16 @@ export async function updateOpsCardStatus(
   if (error) throw error;
 }
 
+// Refile/Pass: hand the card to the other partner. Status resets to 'pending'
+// because the new owner hasn't committed to it — they need to Accept fresh.
+// Single UPDATE so the trigger fires once (the 'passed' announce).
 export async function updateOpsCardOwner(
   cardId: string,
   ownerId: string,
 ): Promise<void> {
   const { error } = await supabase
     .from("ops_cards")
-    .update({ owner_id: ownerId })
+    .update({ owner_id: ownerId, status: "pending" })
     .eq("id", cardId);
   if (error) throw error;
 }

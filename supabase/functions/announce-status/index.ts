@@ -23,9 +23,24 @@ type Payload = {
   card_id: string;
   thread_id: string;
   actor_user_id: string;
-  verb: "accepted" | "done";
+  verb: "accepted" | "done" | "passed";
   title: string;
+  // Only populated for verb='passed'. The recipient the card was handed off
+  // to, so we can name them in the announcement.
+  to_user_id?: string;
 };
+
+// Pull first name from a profile id; "Your partner" fallback so the line
+// still reads naturally if the lookup misses for any reason.
+async function firstNameFor(userId: string | undefined): Promise<string> {
+  if (!userId) return "Your partner";
+  const { data } = await supabase
+    .from("profiles")
+    .select("name")
+    .eq("id", userId)
+    .single();
+  return (data?.name ?? "Your partner").split(" ")[0]!;
+}
 
 Deno.serve(async (req) => {
   let body: Payload;
@@ -39,18 +54,19 @@ Deno.serve(async (req) => {
     return new Response("missing fields", { status: 200 });
   }
 
-  // Look up the actor's first name so the Otis line reads naturally.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("name")
-    .eq("id", body.actor_user_id)
-    .single();
-  const actorFirst = (profile?.name ?? "Your partner").split(" ")[0];
+  const actorFirst = await firstNameFor(body.actor_user_id);
 
-  const line =
-    body.verb === "accepted"
-      ? `${actorFirst}'s got: ${body.title}`
-      : `${actorFirst} done: ${body.title}`;
+  let line: string;
+  if (body.verb === "accepted") {
+    line = `${actorFirst}'s got: ${body.title}`;
+  } else if (body.verb === "done") {
+    line = `${actorFirst} done: ${body.title}`;
+  } else if (body.verb === "passed") {
+    const toFirst = await firstNameFor(body.to_user_id);
+    line = `${actorFirst} passed ${body.title} to ${toFirst}`;
+  } else {
+    return new Response("unknown verb", { status: 200 });
+  }
 
   const { error } = await supabase.from("messages").insert({
     thread_id: body.thread_id,

@@ -126,9 +126,21 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       <ThreadAnchor onBack={onBack} onExpand={() => setSheetOpen(true)}>
         {partner ? (
           <>
-            <Avatar initials={partner.initials} size="sm" />
-            <span className="text-[17px] font-semibold text-ink truncate tracking-tight">
+            {/* Partner avatar + Otis avatar shown together: the partnership is
+                you + your partner + Otis-as-third-party. Making Otis visible
+                in the chrome signals that the thread has a mechanism, not just
+                two humans chatting. */}
+            <div className="relative shrink-0">
+              <Avatar initials={partner.initials} size="sm" />
+              <div className="absolute -bottom-1 -right-1 ring-2 ring-paper rounded-squircle">
+                <Avatar initials="O" size="sm" voice="otis" />
+              </div>
+            </div>
+            <span className="text-[17px] font-semibold text-ink truncate tracking-tight ml-1">
               {partner.name}
+            </span>
+            <span className="smallcaps text-[10px] text-otis ml-1 shrink-0">
+              partnership
             </span>
           </>
         ) : (
@@ -149,10 +161,10 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       >
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${summary.dot}`} />
         <span className={`text-[13px] font-semibold ${summary.tone} truncate`}>
-          {summary.label}
+          {summary.label === "Agent listening" ? "Otis listening" : summary.label}
         </span>
         <span className="ml-auto text-[11.5px] text-muted shrink-0">
-          {thread.opsCards.filter((c) => c.status !== "done").length || "·"} open
+          {thread.opsCards.filter((c) => c.status !== "done").length || "·"} tracked
         </span>
       </button>
 

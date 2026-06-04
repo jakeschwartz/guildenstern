@@ -94,6 +94,8 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
               preview={previewText(t, usersById)}
               timestamp={formatRelative(lastActivity(t))}
               pending={yours > 0}
+              tag="partnership"
+              otisCorner
               onOpen={() => onOpen(t.id)}
             />
           );

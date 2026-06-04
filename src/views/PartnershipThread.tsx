@@ -48,9 +48,9 @@ const summarize = (
     };
   }
   if (cards.length > 0) {
-    return { tone: "text-mira", dot: "bg-mira", label: "All caught up" };
+    return { tone: "text-otis", dot: "bg-otis", label: "All caught up" };
   }
-  return { tone: "text-mira", dot: "bg-mira", label: "Agent listening" };
+  return { tone: "text-otis", dot: "bg-otis", label: "Otis listening" };
 };
 
 export const PartnershipThread = ({ threadId, onBack }: Props) => {
@@ -161,7 +161,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       >
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${summary.dot}`} />
         <span className={`text-[13px] font-semibold ${summary.tone} truncate`}>
-          {summary.label === "Agent listening" ? "Otis listening" : summary.label}
+          {summary.label}
         </span>
         <span className="ml-auto text-[11.5px] text-muted shrink-0">
           {thread.opsCards.filter((c) => c.status !== "done").length || "·"} tracked
@@ -192,8 +192,8 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           const isSelf =
             m.author.kind === "human" && m.author.userId === currentUserId;
           // Per-party rendering: if this is the partner's message AND it
-          // produced ops cards, the reader sees the routed cards (Mira's
-          // summary) instead of the raw burst text. The sender still sees
+          // produced ops cards, the reader sees the routed cards (Otis's
+          // summary in-thread) instead of the raw burst text. The sender still sees
           // their own bubble — they wrote the riff, we don't re-summarize it
           // back at them. See UX_SPEC §3.07.
           const cardsFromThis = cardsByMessage.get(m.id);
@@ -438,10 +438,11 @@ const OpsQueue = ({
 
 // ============================================================================
 // RoutedBurst — inline render of a partner's burst, as seen by the receiver.
-// Same data as a chat message, but rendered as the Mira-routed cards instead
+// Same data as a chat message, but rendered as the Otis-routed cards instead
 // of the original text. The sender of the burst still sees their own raw
 // text bubble — that asymmetry is the whole point of per-party rendering.
-// (UX_SPEC §3.07 "Mira sorts Jenny's burst into shared household queues.")
+// (Spec terminology note: §3.07 says "Mira sorts Jenny's burst" — Mira is the
+// routing logic. The in-thread VOICE is Otis, who lives in the partnership.)
 //
 // Inline cards are TRIAGEABLE in place — same toggle/refile affordances as
 // the Sheet OpsQueue. The Sheet stays as the cross-burst consolidated view.
@@ -497,8 +498,8 @@ const RoutedBurst = ({
     <div className="flex flex-col gap-2 -mx-2">
       <div className="flex items-baseline gap-2 px-2">
         {author && <Avatar initials={author.initials} size="sm" />}
-        <span className="text-[11.5px] text-muted">
-          Mira sorted {senderName}'s items
+        <span className="text-[11.5px] text-otis">
+          Otis sorted {senderName}'s items
         </span>
         <span className="ml-auto text-[11px] text-muted">
           {formatClock(timestamp)}

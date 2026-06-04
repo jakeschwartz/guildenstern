@@ -258,6 +258,19 @@ inspector_port = 8083
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 # entrypoint = "./functions/MY_FUNCTION_NAME/index.ts"
 
+# agent-respond is invoked by a Postgres trigger (notify_agent_on_message)
+# via pg_net.http_post with no Authorization header — pg_net doesn't have
+# access to Supabase's service role JWT, and adding it via vault adds setup
+# friction. Disable JWT verification so the trigger can reach the function.
+# Defense: the function validates webhook payload shape and only writes
+# agent reply rows; nothing read-sensitive.
+[functions.agent-respond]
+verify_jwt = false
+
+# send-push is similarly trigger-invoked. Same rationale.
+[functions.send-push]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

@@ -65,7 +65,11 @@ export const Sheet = ({
           // this, focusing an input inside the sheet pushes the input under
           // the keyboard with no way to see what you're typing.
           bottom: "var(--kbd-h, 0px)",
-          maxHeight: "85%",
+          // Pull up to ~92% of the viewport, never shorter than ~72% even if
+          // content is sparse. Otherwise a 1-item queue would render as a
+          // tiny strip and the sheet wouldn't feel like an actual surface.
+          minHeight: "72%",
+          maxHeight: "92%",
           transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
           transition: dragY > 0 ? "none" : "transform 200ms ease-out",
         }}

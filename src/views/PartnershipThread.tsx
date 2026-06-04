@@ -526,10 +526,177 @@ const CalendarPane = ({
 };
 
 // ============================================================================
-// OpsQueue — the triage surface inside the partnership Sheet.
-// Groups cards by bucket, tap-to-toggle done, owner pill on the right with
-// ↻ re-file to flip ownership. Done cards drop to the bottom of their group
-// at half-opacity rather than disappearing — so you can un-do a misclick.
+// OpsCardRow — the canonical card render. Used by both OpsQueue (Items pane +
+// bottom sheet) and RoutedBurst (inline in chat). Status flow is the same
+// everywhere it appears, so we live the logic once.
+//
+// Left circle shows status: empty (pending), initial-tinted (accepted),
+// check (done). Right primary action: Accept → Done → Undo. Refile pill
+// always present so anyone can flip ownership at any stage.
+// ============================================================================
+
+type OpsCardRowProps = {
+  card: OpsCard;
+  currentUserId: string;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+  // Slightly smaller styling for the inline-in-chat use case.
+  compact?: boolean;
+};
+
+const OpsCardRow = ({
+  card,
+  currentUserId,
+  partnerId,
+  usersById,
+  threadId,
+  compact = false,
+}: OpsCardRowProps) => {
+  const owner = usersById.get(card.owner);
+  const ownerInitials = owner?.initials ?? "·";
+  const isYours = card.owner === currentUserId;
+  const status = card.status;
+  const done = status === "done";
+  const accepted = status === "accepted";
+  const conflict = card.conflictWith;
+
+  const onAccept = () => {
+    void setOpsCardStatus(threadId, card.id, "accepted");
+  };
+  const onMarkDone = () => {
+    void setOpsCardStatus(threadId, card.id, "done");
+  };
+  const onUndo = () => {
+    void setOpsCardStatus(threadId, card.id, "accepted");
+  };
+  const onRefile = () => {
+    const next = isYours ? partnerId : currentUserId;
+    if (!next) return;
+    void setOpsCardOwner(threadId, card.id, next);
+  };
+
+  const titleSize = compact ? "text-[13.5px]" : "text-[14px]";
+  const paddingY = compact ? "py-2" : "py-2.5";
+
+  return (
+    <li className={`${paddingY} ${done ? "opacity-50" : ""}`}>
+      <div className="flex items-center gap-3">
+        {/* Status indicator */}
+        <div
+          aria-label={
+            done ? "Done" : accepted ? "Accepted" : "Pending"
+          }
+          className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[9.5px] font-bold uppercase tracking-wider transition-colors ${
+            done
+              ? "bg-otis-tint text-otis"
+              : accepted
+                ? "bg-otis-tint/60 text-otis ring-1 ring-otis/30"
+                : "border border-rule text-muted"
+          }`}
+        >
+          {done ? (
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="5 12 10 17 19 8" />
+            </svg>
+          ) : accepted ? (
+            ownerInitials
+          ) : null}
+        </div>
+
+        {/* Title + when/subtitle */}
+        <div className="flex-1 min-w-0">
+          <div
+            className={`${titleSize} leading-snug flex items-center gap-1.5 ${
+              done ? "line-through text-muted" : "text-ink"
+            }`}
+          >
+            <span className="truncate">{card.title}</span>
+            {conflict && !done && (
+              <span
+                aria-label="Calendar conflict"
+                className="shrink-0 text-attention text-[12px] leading-none"
+              >
+                ⚠
+              </span>
+            )}
+          </div>
+          {(card.when || card.subtitle) && (
+            <div className="text-[11px] text-muted mt-0.5">
+              {card.when}
+              {card.when && card.subtitle && " · "}
+              {card.subtitle}
+            </div>
+          )}
+        </div>
+
+        {/* Right actions: primary (Accept/Done/Undo) + refile pill */}
+        <div className="shrink-0 flex items-center gap-1.5">
+          {isYours && status === "pending" && (
+            <button
+              onClick={onAccept}
+              className="h-7 px-2.5 rounded-md bg-ink text-paper text-[11px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
+            >
+              Accept
+            </button>
+          )}
+          {isYours && status === "accepted" && (
+            <button
+              onClick={onMarkDone}
+              className="h-7 px-2.5 rounded-md bg-otis text-paper text-[11px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
+            >
+              Done
+            </button>
+          )}
+          {isYours && status === "done" && (
+            <button
+              onClick={onUndo}
+              className="text-[10.5px] text-muted hover:text-ink underline transition-colors"
+            >
+              Undo
+            </button>
+          )}
+          <button
+            onClick={onRefile}
+            aria-label={isYours ? "Send to partner" : "Take it"}
+            title={isYours ? "Send to partner" : "Take it"}
+            className={`h-6 px-1.5 rounded-md flex items-center gap-0.5 text-[9.5px] font-semibold uppercase tracking-wider transition-colors ${
+              isYours
+                ? "bg-card text-muted hover:text-ink"
+                : "bg-attention-tint text-attention hover:opacity-90"
+            }`}
+          >
+            <span>{ownerInitials}</span>
+            <span aria-hidden className="opacity-50">↻</span>
+          </button>
+        </div>
+      </div>
+      {conflict && !done && (
+        <ConflictPanel
+          card={card}
+          conflict={conflict}
+          currentUserId={currentUserId}
+          partnerId={partnerId}
+          usersById={usersById}
+          threadId={threadId}
+        />
+      )}
+    </li>
+  );
+};
+
+// ============================================================================
+// OpsQueue — the triage surface inside the partnership Sheet and Items pane.
+// Groups cards by bucket; rows handle their own status flow.
 // ============================================================================
 
 const BUCKET_ORDER: OpsBucket[] = ["today", "week", "ongoing", "long"];
@@ -574,19 +741,6 @@ const OpsQueue = ({
     });
   }
 
-  const onToggle = (card: OpsCard) => {
-    void setOpsCardStatus(
-      threadId,
-      card.id,
-      card.status === "done" ? "pending" : "done",
-    );
-  };
-  const onRefile = (card: OpsCard) => {
-    const next = card.owner === currentUserId ? partnerId : currentUserId;
-    if (!next) return;
-    void setOpsCardOwner(threadId, card.id, next);
-  };
-
   return (
     <div className="flex flex-col gap-5">
       {BUCKET_ORDER.map((bucket) => {
@@ -598,94 +752,16 @@ const OpsQueue = ({
               {BUCKET_LABELS[bucket]}
             </div>
             <ul className="divide-y divide-rule/60">
-              {group.map((card) => {
-                const owner = usersById.get(card.owner);
-                const ownerInitials = owner?.initials ?? "·";
-                const isYours = card.owner === currentUserId;
-                const done = card.status === "done";
-                const conflict = card.conflictWith;
-                return (
-                  <li
-                    key={card.id}
-                    className={`py-2.5 ${done ? "opacity-50" : ""}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => onToggle(card)}
-                        aria-label={done ? "Mark pending" : "Mark done"}
-                        className="shrink-0 h-5 w-5 rounded-full border border-rule flex items-center justify-center hover:border-ink transition-colors"
-                      >
-                        {done && (
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            width="12"
-                            height="12"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-otis"
-                          >
-                            <polyline points="5 12 10 17 19 8" />
-                          </svg>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => onToggle(card)}
-                        className="flex-1 min-w-0 text-left"
-                      >
-                        <div
-                          className={`text-[14px] leading-snug flex items-center gap-1.5 ${
-                            done ? "line-through text-muted" : "text-ink"
-                          }`}
-                        >
-                          <span className="truncate">{card.title}</span>
-                          {conflict && !done && (
-                            <span
-                              aria-label="Calendar conflict"
-                              className="shrink-0 text-attention text-[12px] leading-none"
-                            >
-                              ⚠
-                            </span>
-                          )}
-                        </div>
-                        {(card.when || card.subtitle) && (
-                          <div className="text-[11.5px] text-muted mt-0.5">
-                            {card.when}
-                            {card.when && card.subtitle && " · "}
-                            {card.subtitle}
-                          </div>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => onRefile(card)}
-                        aria-label={isYours ? "Send to partner" : "Take it"}
-                        title={isYours ? "Send to partner" : "Take it"}
-                        className={`shrink-0 h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-                          isYours
-                            ? "bg-attention-tint text-attention"
-                            : "bg-card text-muted hover:text-ink"
-                        }`}
-                      >
-                        <span>{ownerInitials}</span>
-                        <span aria-hidden className="opacity-50">↻</span>
-                      </button>
-                    </div>
-                    {conflict && !done && (
-                      <ConflictPanel
-                        card={card}
-                        conflict={conflict}
-                        currentUserId={currentUserId}
-                        partnerId={partnerId}
-                        usersById={usersById}
-                        threadId={threadId}
-                      />
-                    )}
-                  </li>
-                );
-              })}
+              {group.map((card) => (
+                <OpsCardRow
+                  key={card.id}
+                  card={card}
+                  currentUserId={currentUserId}
+                  partnerId={partnerId}
+                  usersById={usersById}
+                  threadId={threadId}
+                />
+              ))}
             </ul>
           </div>
         );
@@ -737,19 +813,6 @@ const RoutedBurst = ({
     byBucket[k].sort((a, b) => a.createdAt - b.createdAt);
   }
 
-  const onToggle = (card: OpsCard) => {
-    void setOpsCardStatus(
-      threadId,
-      card.id,
-      card.status === "done" ? "pending" : "done",
-    );
-  };
-  const onRefile = (card: OpsCard) => {
-    const next = card.owner === currentUserId ? partnerId : currentUserId;
-    if (!next) return;
-    void setOpsCardOwner(threadId, card.id, next);
-  };
-
   const senderName = author?.name?.split(" ")[0] ?? "they";
 
   return (
@@ -773,75 +836,17 @@ const RoutedBurst = ({
                 {BUCKET_LABELS[bucket]}
               </div>
               <ul className="divide-y divide-rule/40">
-                {group.map((card) => {
-                  const owner = usersById.get(card.owner);
-                  const ownerInitials = owner?.initials ?? "·";
-                  const isYours = card.owner === currentUserId;
-                  const done = card.status === "done";
-                  return (
-                    <li
-                      key={card.id}
-                      className={`py-2 ${done ? "opacity-50" : ""}`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <button
-                          onClick={() => onToggle(card)}
-                          aria-label={done ? "Mark pending" : "Mark done"}
-                          className="shrink-0 h-5 w-5 rounded-full border border-rule flex items-center justify-center hover:border-ink transition-colors"
-                        >
-                          {done && (
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              viewBox="0 0 24 24"
-                              width="12"
-                              height="12"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="3"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              className="text-otis"
-                            >
-                              <polyline points="5 12 10 17 19 8" />
-                            </svg>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => onToggle(card)}
-                          className="flex-1 min-w-0 text-left"
-                        >
-                          <div
-                            className={`text-[13.5px] leading-snug ${
-                              done ? "line-through text-muted" : "text-ink"
-                            }`}
-                          >
-                            <span className="truncate">{card.title}</span>
-                          </div>
-                          {(card.when || card.subtitle) && (
-                            <div className="text-[11px] text-muted mt-0.5">
-                              {card.when}
-                              {card.when && card.subtitle && " · "}
-                              {card.subtitle}
-                            </div>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => onRefile(card)}
-                          aria-label={isYours ? "Send to partner" : "Take it"}
-                          title={isYours ? "Send to partner" : "Take it"}
-                          className={`shrink-0 h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
-                            isYours
-                              ? "bg-attention-tint text-attention"
-                              : "bg-card text-muted hover:text-ink"
-                          }`}
-                        >
-                          <span>{ownerInitials}</span>
-                          <span aria-hidden className="opacity-50">↻</span>
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
+                {group.map((card) => (
+                  <OpsCardRow
+                    key={card.id}
+                    card={card}
+                    currentUserId={currentUserId}
+                    partnerId={partnerId}
+                    usersById={usersById}
+                    threadId={threadId}
+                    compact
+                  />
+                ))}
               </ul>
             </div>
           );

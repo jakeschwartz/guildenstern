@@ -61,7 +61,12 @@ export type Message = {
   foldSummary?: string;
 };
 
-export type OpsCardStatus = "pending" | "done" | "deferred";
+// pending = just landed from a burst, nobody's claimed it yet.
+// accepted = the owner explicitly committed ("Jake's got it"). Otis announces
+//   in chat so the sender knows it's claimed without checking the queue.
+// done    = completed.
+// deferred = punted to later (unused in v1).
+export type OpsCardStatus = "pending" | "accepted" | "done" | "deferred";
 export type OpsBucket = "today" | "week" | "ongoing" | "long";
 
 export type OpsCard = {

@@ -19,6 +19,7 @@ import type {
   Message,
   MessageAuthor,
   OpsCard,
+  OpsCardStatus,
   Partnership,
   PartnershipThread,
   PersonalThread,
@@ -348,7 +349,7 @@ export const redeemInviteCode = async (code: string): Promise<string> => {
 export const setOpsCardStatus = async (
   threadId: string,
   cardId: string,
-  status: "pending" | "done" | "deferred",
+  status: OpsCardStatus,
 ) => {
   const threads = state.threads.map((t) => {
     if (t.id !== threadId || t.kind !== "partnership") return t;

@@ -58,8 +58,13 @@ export const Sheet = ({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className="absolute inset-x-0 bottom-0 z-40 bg-paper rounded-t-3xl border-t border-rule shadow-[0_-12px_40px_-12px_rgba(17,17,17,0.25)] ease-out flex flex-col"
+        className="absolute inset-x-0 z-40 bg-paper rounded-t-3xl border-t border-rule shadow-[0_-12px_40px_-12px_rgba(17,17,17,0.25)] ease-out flex flex-col"
         style={{
+          // Sit above the iOS keyboard when it's up. --kbd-h is tracked from
+          // Capacitor Keyboard plugin events in src/lib/keyboard.ts. Without
+          // this, focusing an input inside the sheet pushes the input under
+          // the keyboard with no way to see what you're typing.
+          bottom: "var(--kbd-h, 0px)",
           maxHeight: "85%",
           transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
           transition: dragY > 0 ? "none" : "transform 200ms ease-out",

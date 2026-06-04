@@ -20,6 +20,11 @@ import { getTheme, toggleTheme } from "./lib/theme";
 import { supabase } from "./lib/supabase";
 import * as db from "./lib/db";
 import {
+  connectGoogle,
+  getGoogleConnectionStatus,
+  subscribeToGoogleTokens,
+} from "./lib/google";
+import {
   previewState,
   previewStateSolo,
   PREVIEW_PARTNERSHIP_THREAD_ID,
@@ -131,6 +136,29 @@ export const App = () => {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleScopes, setGoogleScopes] = useState<string[]>([]);
+
+  // Load Google connection status on session change; subscribe to realtime
+  // so the menu flips from "Connect" → "Connected" the moment the OAuth
+  // callback writes the tokens row from the Safari View Controller.
+  useEffect(() => {
+    if (!session || session === "loading") return;
+    let alive = true;
+    void getGoogleConnectionStatus().then((s) => {
+      if (!alive) return;
+      setGoogleConnected(s.connected);
+      setGoogleScopes(s.scopes);
+    });
+    const unsub = subscribeToGoogleTokens((s) => {
+      setGoogleConnected(s.connected);
+      setGoogleScopes(s.scopes);
+    });
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [session]);
   // Helper so menu item handlers don't leave a previously-open sheet behind
   // when they open a different one (otherwise three sheets can stack).
   const closeAllSheets = () => {
@@ -258,6 +286,36 @@ export const App = () => {
               <div className="text-[12.5px] text-muted mt-0.5">
                 Join a partnership with someone else's code
               </div>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                void connectGoogle(["calendar.readonly"]);
+              }}
+              className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors flex items-center justify-between gap-3"
+            >
+              <div>
+                <div className="text-[15px] font-semibold text-ink tracking-tight">
+                  Google Calendar
+                </div>
+                <div className="text-[12.5px] text-muted mt-0.5">
+                  {googleConnected
+                    ? googleScopes.some((s) =>
+                        s.includes("calendar.readonly"),
+                      )
+                      ? "Connected"
+                      : "Reconnect to add Calendar scope"
+                    : "Connect to surface events"}
+                </div>
+              </div>
+              <span className="text-[12px] text-otis">
+                {googleConnected &&
+                googleScopes.some((s) => s.includes("calendar.readonly"))
+                  ? "✓"
+                  : "→"}
+              </span>
             </button>
           </li>
           <li>

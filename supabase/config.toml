@@ -276,6 +276,18 @@ verify_jwt = false
 [functions.announce-status]
 verify_jwt = false
 
+# google-oauth-start: opened in Safari View Controller from the app. We
+# authenticate the user via the access_token passed in the query string
+# (verified server-side against auth.getUser); JWT-in-Authorization-header
+# doesn't survive a browser redirect, so verify_jwt=false here.
+[functions.google-oauth-start]
+verify_jwt = false
+
+# google-oauth-callback: Google's redirect target. No client auth — Google
+# proves it's us via the state param (signed user_id) + the code exchange.
+[functions.google-oauth-callback]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

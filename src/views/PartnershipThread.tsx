@@ -53,6 +53,12 @@ const summarize = (
   return { tone: "text-otis", dot: "bg-otis", label: "Otis listening" };
 };
 
+// Carousel pane indices. Center (CHAT) is the default landing; swipe one
+// way for the calendar/timeline view, the other for the live items queue.
+const PANE_CALENDAR = 0;
+const PANE_CHAT = 1;
+const PANE_ITEMS = 2;
+
 export const PartnershipThread = ({ threadId, onBack }: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "partnership"),
@@ -65,6 +71,8 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
     [users],
   );
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [paneIndex, setPaneIndex] = useState(PANE_CHAT);
+  const carouselRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageCount =
     thread?.kind === "partnership" ? thread.messages.length : 0;
@@ -73,6 +81,29 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messageCount]);
+  // On first render: jump the carousel to the chat pane so the user lands on
+  // the conversation, not on calendar. Use scrollLeft directly (no smooth)
+  // because the user hasn't seen any animation yet — instant placement.
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+    el.scrollLeft = el.clientWidth * PANE_CHAT;
+  }, []);
+  // Programmatic pane navigation (tap a dot, tap the status strip, etc.)
+  const goToPane = (idx: number) => {
+    const el = carouselRef.current;
+    if (!el) return;
+    el.scrollTo({ left: el.clientWidth * idx, behavior: "smooth" });
+  };
+  // Sync paneIndex from scroll position so the dot indicator follows finger.
+  const onCarouselScroll = () => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const w = el.clientWidth;
+    if (w === 0) return;
+    const idx = Math.round(el.scrollLeft / w);
+    if (idx !== paneIndex) setPaneIndex(idx);
+  };
 
   if (!thread || thread.kind !== "partnership") {
     return (
@@ -156,7 +187,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       </ThreadAnchor>
 
       <button
-        onClick={() => setSheetOpen(true)}
+        onClick={() => goToPane(PANE_ITEMS)}
         className="w-full h-11 px-4 flex items-center gap-2.5 border-b border-rule text-left hover:bg-card/40 transition-colors"
       >
         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${summary.dot}`} />
@@ -168,17 +199,64 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
         </span>
       </button>
 
+      {/* Page-indicator dots. Tap any dot to jump to that pane.
+          Order matches carousel: calendar (left) · chat (center) · items (right). */}
+      <div className="flex items-center justify-center gap-1.5 py-1.5 border-b border-rule shrink-0">
+        {[PANE_CALENDAR, PANE_CHAT, PANE_ITEMS].map((i) => (
+          <button
+            key={i}
+            onClick={() => goToPane(i)}
+            aria-label={
+              i === PANE_CALENDAR
+                ? "Calendar"
+                : i === PANE_CHAT
+                  ? "Chat"
+                  : "Items"
+            }
+            className={`h-1.5 rounded-full transition-all ${
+              paneIndex === i ? "w-6 bg-ink" : "w-1.5 bg-rule hover:bg-muted"
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* Three-pane horizontal carousel. Center pane = chat (default).
+          Swipe left → items queue. Swipe right → calendar. CSS scroll-snap
+          handles the snapping; we just listen on scroll to update the dots. */}
       <div
-        ref={scrollRef}
-        data-thread-scroll="true"
-        className="flex-1 overflow-y-auto pt-4 flex flex-col gap-4 min-h-0"
+        ref={carouselRef}
+        onScroll={onCarouselScroll}
+        className="flex-1 flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory min-h-0"
         style={{
-          paddingLeft: 32,
-          paddingRight: 32,
-          paddingBottom:
-            "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+          WebkitOverflowScrolling: "touch",
         }}
       >
+        {/* Pane 0 — Calendar / timeline. Placeholder until task #14 lands
+            real date resolution; for now groups by the existing string label. */}
+        <div className="w-full shrink-0 snap-start overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+          <CalendarPane
+            cards={thread.opsCards}
+            currentUserId={currentUserId}
+            partnerId={partnerId}
+            usersById={usersById}
+            threadId={thread.id}
+          />
+        </div>
+
+        {/* Pane 1 — Chat. The original message stream, untouched. */}
+        <div
+          ref={scrollRef}
+          data-thread-scroll="true"
+          className="w-full shrink-0 snap-start overflow-y-auto pt-4 flex flex-col gap-4"
+          style={{
+            paddingLeft: 32,
+            paddingRight: 32,
+            paddingBottom:
+              "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+          }}
+        >
         {thread.messages.length === 0 && (
           <div className="text-center text-[12.5px] text-muted py-8">
             No messages yet. {partner ? `Say hi to ${partner.name}.` : ""}
@@ -220,6 +298,39 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             />
           );
         })}
+        </div>
+
+        {/* Pane 2 — Items queue. Same OpsQueue UI as the bottom sheet, but
+            living on a dedicated pane so swipe-from-chat reveals it as a
+            real surface. The bottom sheet stays as a redundant affordance
+            for now; can retire it later if it feels unneeded. */}
+        <div
+          className="w-full shrink-0 snap-start overflow-y-auto"
+          style={{
+            paddingBottom:
+              "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+          }}
+        >
+          <div className="px-5 pt-5">
+            <div className="smallcaps text-[11px] text-muted mb-3">
+              What Otis is tracking
+            </div>
+            {thread.opsCards.length === 0 ? (
+              <div className="text-[12.5px] text-muted italic">
+                Nothing here yet. When one of you sends a burst of items,
+                they land here for the other to triage.
+              </div>
+            ) : (
+              <OpsQueue
+                cards={thread.opsCards}
+                currentUserId={currentUserId}
+                partnerId={partnerId}
+                usersById={usersById}
+                threadId={thread.id}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       <Composer
@@ -263,6 +374,153 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           )}
         </div>
       </Sheet>
+    </div>
+  );
+};
+
+// ============================================================================
+// CalendarPane — left swipe pane in the partnership carousel. v1 placeholder:
+// groups items by the current string when_label (today / tomorrow / weekday /
+// this week / ongoing / later). Once task #14 lands real when_ts resolution,
+// rework this to group by actual dates with weekday subheaders and surface
+// calendar conflicts inline (Conflict already in the data model).
+// ============================================================================
+
+type CalendarPaneProps = {
+  cards: OpsCard[];
+  currentUserId: string;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+};
+
+// Buckets used for the placeholder grouping. Lowercase, matches what the
+// edge function emits in when_label.
+const TIME_BUCKETS: Array<{ key: string; label: string; match: (w: string) => boolean }> = [
+  {
+    key: "today",
+    label: "Today",
+    match: (w) => /^(today|tonight)$/i.test(w),
+  },
+  {
+    key: "tomorrow",
+    label: "Tomorrow",
+    match: (w) => /^tomorrow$/i.test(w),
+  },
+  {
+    key: "this-week",
+    label: "This week",
+    match: (w) =>
+      /^(this week|mon|tue|wed|thu|fri|sat|sun)/i.test(w),
+  },
+  {
+    key: "later",
+    label: "Later",
+    match: (w) => /^(next week|long)/i.test(w),
+  },
+  {
+    key: "ongoing",
+    label: "Ongoing",
+    match: (w) => /^(ongoing|recurring)/i.test(w),
+  },
+];
+
+const CalendarPane = ({
+  cards,
+  currentUserId,
+  partnerId,
+  usersById,
+  threadId,
+}: CalendarPaneProps) => {
+  // Group cards into time buckets. Anything that doesn't match falls into
+  // "Later" so nothing is silently dropped.
+  const grouped: Record<string, OpsCard[]> = {};
+  for (const b of TIME_BUCKETS) grouped[b.key] = [];
+  for (const c of cards) {
+    if (c.status === "done") continue; // skip completed
+    const w = c.when || "";
+    const bucket = TIME_BUCKETS.find((b) => b.match(w));
+    grouped[bucket?.key ?? "later"]!.push(c);
+  }
+
+  const totalPending = cards.filter((c) => c.status !== "done").length;
+
+  if (totalPending === 0) {
+    return (
+      <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
+        <div className="smallcaps text-[10.5px] text-otis mb-3">
+          calendar
+        </div>
+        Nothing scheduled yet.
+        <br />
+        When you and your partner exchange items with timing,
+        <br />
+        they'll land here on the right day.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 pt-5 pb-12 flex flex-col gap-6">
+      <div className="smallcaps text-[10.5px] text-otis">calendar</div>
+      {TIME_BUCKETS.map((b) => {
+        const list = grouped[b.key]!;
+        if (list.length === 0) return null;
+        return (
+          <div key={b.key}>
+            <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
+              {b.label}
+            </div>
+            <ul className="divide-y divide-rule/60">
+              {list.map((card) => {
+                const owner = usersById.get(card.owner);
+                const ownerInitials = owner?.initials ?? "·";
+                const isYours = card.owner === currentUserId;
+                const conflict = card.conflictWith;
+                return (
+                  <li key={card.id} className="py-2.5 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] text-ink leading-snug flex items-center gap-1.5">
+                        <span className="truncate">{card.title}</span>
+                        {conflict && (
+                          <span
+                            aria-label="Calendar conflict"
+                            className="shrink-0 text-attention text-[12px] leading-none"
+                          >
+                            ⚠
+                          </span>
+                        )}
+                      </div>
+                      {(card.when || card.subtitle) && (
+                        <div className="text-[11.5px] text-muted mt-0.5">
+                          {card.when}
+                          {card.when && card.subtitle && " · "}
+                          {card.subtitle}
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={`shrink-0 h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider ${
+                        isYours
+                          ? "bg-attention-tint text-attention"
+                          : "bg-card text-muted"
+                      }`}
+                    >
+                      {ownerInitials}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+      {/* Suppress unused-prop warnings for v1 placeholder; partnerId/threadId
+          will be used when conflict-resolution actions land here. */}
+      <div className="hidden">
+        {partnerId}
+        {threadId}
+      </div>
     </div>
   );
 };

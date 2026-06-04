@@ -56,13 +56,13 @@ Deno.serve(async (req) => {
   if (oauthErr) {
     return new Response(errorHtml(`Google returned: ${oauthErr}`), {
       status: 400,
-      headers: { "content-type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
   if (!code || !stateRaw) {
     return new Response(errorHtml("Missing code or state from Google"), {
       status: 400,
-      headers: { "content-type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
   } catch {
     return new Response(errorHtml("Couldn't decode state"), {
       status: 400,
-      headers: { "content-type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     console.error("[google-oauth-callback] token exchange failed", t);
     return new Response(errorHtml(`Token exchange failed: ${t}`), {
       status: 502,
-      headers: { "content-type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
   const tok = (await tokenRes.json()) as {
@@ -146,7 +146,7 @@ Deno.serve(async (req) => {
     console.error("[google-oauth-callback] upsert failed", upsertErr);
     return new Response(errorHtml(`DB error: ${upsertErr.message}`), {
       status: 500,
-      headers: { "content-type": "text/html" },
+      headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 

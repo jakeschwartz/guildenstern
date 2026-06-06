@@ -91,6 +91,18 @@ export type Partnership = {
   participantIds: [UserId, UserId];
 };
 
+// Normalized Google Calendar event. Returned by the fetch-google-events
+// edge function which collapses Google's dateTime/date variation into a
+// single ms epoch + allDay flag, so the client doesn't have to.
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  start: number; // ms epoch
+  end: number; // ms epoch
+  allDay: boolean;
+  location: string | null;
+};
+
 export type PartnershipThread = {
   kind: "partnership";
   id: ThreadId;

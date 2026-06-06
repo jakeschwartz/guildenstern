@@ -15,7 +15,9 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { Session } from "@supabase/supabase-js";
 import * as db from "../lib/db";
+import * as google from "../lib/google";
 import type {
+  CalendarEvent,
   Message,
   MessageAuthor,
   OpsCard,
@@ -39,6 +41,11 @@ type State = {
   users: User[];
   partnerships: Partnership[];
   threads: Thread[];
+  // Per-user Google Calendar events for the next ~7 days. Loaded lazily when
+  // the user lands on a surface that needs them (Calendar pane); refreshed
+  // on demand. Empty if Google isn't connected.
+  calendarEvents: CalendarEvent[];
+  calendarEventsFetchedAt: number | null;
 };
 
 const initial: State = {
@@ -48,6 +55,8 @@ const initial: State = {
   users: [],
   partnerships: [],
   threads: [],
+  calendarEvents: [],
+  calendarEventsFetchedAt: null,
 };
 
 let state: State = initial;
@@ -192,6 +201,8 @@ export const hydrate = async (session: Session) => {
     users: [],
     partnerships: [],
     threads: [],
+    calendarEvents: [],
+    calendarEventsFetchedAt: null,
   });
   teardownRealtime();
 
@@ -410,6 +421,18 @@ export const dismissOpsCardConflict = (threadId: string, cardId: string) => {
     };
   });
   setState({ threads });
+};
+
+// Refresh the current user's Google Calendar events for the next ~7 days.
+// Idempotent + cheap to call — the fetch helper short-circuits to [] if the
+// user hasn't connected Google.
+export const refreshCalendarEvents = async (): Promise<void> => {
+  try {
+    const events = await google.fetchCalendarEvents();
+    setState({ calendarEvents: events, calendarEventsFetchedAt: Date.now() });
+  } catch (e) {
+    console.error("[guildenstern] refreshCalendarEvents failed", e);
+  }
 };
 
 // ---------- React glue ----------

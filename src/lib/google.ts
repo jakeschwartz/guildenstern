@@ -9,6 +9,7 @@
 
 import { Browser } from "@capacitor/browser";
 import { supabase } from "./supabase";
+import type { CalendarEvent } from "../types";
 
 const SUPABASE_FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
@@ -43,6 +44,35 @@ export async function getGoogleConnectionStatus(): Promise<{
     connected: true,
     scopes: data.scope.split(" ").filter(Boolean),
   };
+}
+
+// Fetch the user's primary Google Calendar events in a date range. Defaults
+// to now → +7 days. Returns [] if the user isn't connected (rather than an
+// error), so callers can render the empty state cleanly without a try/catch.
+export async function fetchCalendarEvents(opts?: {
+  timeMin?: Date;
+  timeMax?: Date;
+}): Promise<CalendarEvent[]> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return [];
+
+  const url = new URL(`${SUPABASE_FN_URL}/fetch-google-events`);
+  if (opts?.timeMin) url.searchParams.set("timeMin", opts.timeMin.toISOString());
+  if (opts?.timeMax) url.searchParams.set("timeMax", opts.timeMax.toISOString());
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    console.error("[fetchCalendarEvents] failed", res.status, await res.text());
+    return [];
+  }
+  const json = (await res.json()) as {
+    events: CalendarEvent[];
+    connected: boolean;
+  };
+  return json.events ?? [];
 }
 
 // Realtime subscription so the menu UI flips to "Connected" the moment the

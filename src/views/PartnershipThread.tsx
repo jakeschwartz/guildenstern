@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   dismissOpsCardConflict,
+  refreshCalendarEvents,
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
@@ -233,16 +234,13 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {/* Pane 0 — Calendar / timeline. Placeholder until task #14 lands
-            real date resolution; for now groups by the existing string label. */}
+        {/* Pane 0 — Calendar. Shows the user's actual Google Calendar
+            events grouped by Today / Tomorrow / This week / Later. Pure
+            display; partnership items stay in chat + queue panes. When
+            Otis catches calendar conflicts (item time collides with an
+            event here), the ⚠ surfaces ON THE CARD, not here. */}
         <div className="w-full shrink-0 snap-start overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
-          <CalendarPane
-            cards={thread.opsCards}
-            currentUserId={currentUserId}
-            partnerId={partnerId}
-            usersById={usersById}
-            threadId={thread.id}
-          />
+          <CalendarPane />
         </div>
 
         {/* Pane 1 — Chat. The original message stream, untouched. */}
@@ -379,148 +377,170 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
 };
 
 // ============================================================================
-// CalendarPane — left swipe pane in the partnership carousel. v1 placeholder:
-// groups items by the current string when_label (today / tomorrow / weekday /
-// this week / ongoing / later). Once task #14 lands real when_ts resolution,
-// rework this to group by actual dates with weekday subheaders and surface
-// calendar conflicts inline (Conflict already in the data model).
+// CalendarPane — left swipe pane in the partnership carousel. Shows YOUR
+// Google Calendar events grouped by Today / Tomorrow / This week / Later.
+// Purely display — partnership items live in the chat + queue panes; conflict
+// detection happens server-side and surfaces ⚠ on the cards themselves.
 // ============================================================================
 
-type CalendarPaneProps = {
-  cards: OpsCard[];
-  currentUserId: string;
-  partnerId: string;
-  usersById: Map<string, User>;
-  threadId: string;
+// Day-bucket the events. "Today" = same calendar date as now; "Tomorrow" =
+// next calendar date; "This week" = the next 7 days minus today/tomorrow;
+// "Later" = beyond that.
+const startOfDay = (ms: number): number => {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 };
 
-// Buckets used for the placeholder grouping. Lowercase, matches what the
-// edge function emits in when_label.
-const TIME_BUCKETS: Array<{ key: string; label: string; match: (w: string) => boolean }> = [
-  {
-    key: "today",
-    label: "Today",
-    match: (w) => /^(today|tonight)$/i.test(w),
-  },
-  {
-    key: "tomorrow",
-    label: "Tomorrow",
-    match: (w) => /^tomorrow$/i.test(w),
-  },
-  {
-    key: "this-week",
-    label: "This week",
-    match: (w) =>
-      /^(this week|mon|tue|wed|thu|fri|sat|sun)/i.test(w),
-  },
-  {
-    key: "later",
-    label: "Later",
-    match: (w) => /^(next week|long)/i.test(w),
-  },
-  {
-    key: "ongoing",
-    label: "Ongoing",
-    match: (w) => /^(ongoing|recurring)/i.test(w),
-  },
-];
+const dayBucketFor = (
+  eventStart: number,
+  todayStart: number,
+): "today" | "tomorrow" | "thisWeek" | "later" => {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.floor((startOfDay(eventStart) - todayStart) / dayMs);
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days < 7) return "thisWeek";
+  return "later";
+};
 
-const CalendarPane = ({
-  cards,
-  currentUserId,
-  partnerId,
-  usersById,
-  threadId,
-}: CalendarPaneProps) => {
-  // Group cards into time buckets. Anything that doesn't match falls into
-  // "Later" so nothing is silently dropped.
-  const grouped: Record<string, OpsCard[]> = {};
-  for (const b of TIME_BUCKETS) grouped[b.key] = [];
-  for (const c of cards) {
-    if (c.status === "done") continue; // skip completed
-    const w = c.when || "";
-    const bucket = TIME_BUCKETS.find((b) => b.match(w));
-    grouped[bucket?.key ?? "later"]!.push(c);
+const fmtTime = (ms: number): string => {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, "0")}${ampm}`;
+};
+
+const fmtDayLabel = (ms: number): string => {
+  const d = new Date(ms);
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+};
+
+const CalendarPane = () => {
+  const calendarEvents = useStore((s) => s.calendarEvents);
+  const fetchedAt = useStore((s) => s.calendarEventsFetchedAt);
+
+  // Trigger a fetch on mount (and once on mount only — the user can pull-down
+  // later if we add that gesture). Idempotent + cheap.
+  useEffect(() => {
+    void refreshCalendarEvents();
+  }, []);
+
+  // Refresh if cached fetch is stale (>5 min). Avoids fetching on every
+  // re-mount when the user swipes between panes.
+  useEffect(() => {
+    const STALE_MS = 5 * 60 * 1000;
+    if (fetchedAt && Date.now() - fetchedAt < STALE_MS) return;
+    void refreshCalendarEvents();
+  }, [fetchedAt]);
+
+  const todayStart = startOfDay(Date.now());
+
+  const groups: Record<
+    "today" | "tomorrow" | "thisWeek" | "later",
+    typeof calendarEvents
+  > = { today: [], tomorrow: [], thisWeek: [], later: [] };
+  for (const e of calendarEvents) {
+    groups[dayBucketFor(e.start, todayStart)].push(e);
   }
 
-  const totalPending = cards.filter((c) => c.status !== "done").length;
-
-  if (totalPending === 0) {
+  if (calendarEvents.length === 0) {
     return (
       <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
-        <div className="smallcaps text-[10.5px] text-otis mb-3">
-          calendar
-        </div>
-        Nothing scheduled yet.
-        <br />
-        When you and your partner exchange items with timing,
-        <br />
-        they'll land here on the right day.
+        <div className="smallcaps text-[10.5px] text-otis mb-3">your day</div>
+        Connect Google Calendar in the menu to see your events here.
       </div>
     );
   }
 
+  // For "This week", subgroup by day so each weekday gets its own heading.
+  const thisWeekByDay = new Map<number, typeof calendarEvents>();
+  for (const e of groups.thisWeek) {
+    const k = startOfDay(e.start);
+    const arr = thisWeekByDay.get(k);
+    if (arr) arr.push(e);
+    else thisWeekByDay.set(k, [e]);
+  }
+  const thisWeekOrdered = Array.from(thisWeekByDay.entries()).sort(
+    (a, b) => a[0] - b[0],
+  );
+
+  const renderEvent = (e: (typeof calendarEvents)[number]) => (
+    <li key={e.id} className="py-2 flex items-baseline gap-3">
+      <div className="shrink-0 w-14 text-[11.5px] text-muted font-medium tabular-nums">
+        {e.allDay ? "all day" : fmtTime(e.start)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[14px] text-ink leading-snug truncate">
+          {e.title}
+        </div>
+        {e.location && (
+          <div className="text-[11.5px] text-muted truncate mt-0.5">
+            {e.location}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+
   return (
     <div className="px-5 pt-5 pb-12 flex flex-col gap-6">
-      <div className="smallcaps text-[10.5px] text-otis">calendar</div>
-      {TIME_BUCKETS.map((b) => {
-        const list = grouped[b.key]!;
-        if (list.length === 0) return null;
-        return (
-          <div key={b.key}>
-            <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
-              {b.label}
-            </div>
-            <ul className="divide-y divide-rule/60">
-              {list.map((card) => {
-                const owner = usersById.get(card.owner);
-                const ownerInitials = owner?.initials ?? "·";
-                const isYours = card.owner === currentUserId;
-                const conflict = card.conflictWith;
-                return (
-                  <li key={card.id} className="py-2.5 flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] text-ink leading-snug flex items-center gap-1.5">
-                        <span className="truncate">{card.title}</span>
-                        {conflict && (
-                          <span
-                            aria-label="Calendar conflict"
-                            className="shrink-0 text-attention text-[12px] leading-none"
-                          >
-                            ⚠
-                          </span>
-                        )}
-                      </div>
-                      {(card.when || card.subtitle) && (
-                        <div className="text-[11.5px] text-muted mt-0.5">
-                          {card.when}
-                          {card.when && card.subtitle && " · "}
-                          {card.subtitle}
-                        </div>
-                      )}
-                    </div>
-                    <span
-                      className={`shrink-0 h-6 px-1.5 rounded-md flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider ${
-                        isYours
-                          ? "bg-attention-tint text-attention"
-                          : "bg-card text-muted"
-                      }`}
-                    >
-                      {ownerInitials}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+      <div className="smallcaps text-[10.5px] text-otis">your day</div>
+
+      {groups.today.length > 0 && (
+        <div>
+          <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
+            Today
           </div>
-        );
-      })}
-      {/* Suppress unused-prop warnings for v1 placeholder; partnerId/threadId
-          will be used when conflict-resolution actions land here. */}
-      <div className="hidden">
-        {partnerId}
-        {threadId}
-      </div>
+          <ul className="divide-y divide-rule/60">
+            {groups.today.map(renderEvent)}
+          </ul>
+        </div>
+      )}
+
+      {groups.tomorrow.length > 0 && (
+        <div>
+          <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
+            Tomorrow
+          </div>
+          <ul className="divide-y divide-rule/60">
+            {groups.tomorrow.map(renderEvent)}
+          </ul>
+        </div>
+      )}
+
+      {thisWeekOrdered.length > 0 && (
+        <div>
+          <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
+            This week
+          </div>
+          <div className="flex flex-col gap-4">
+            {thisWeekOrdered.map(([dayStart, events]) => (
+              <div key={dayStart}>
+                <div className="smallcaps text-[10.5px] text-muted mb-1">
+                  {fmtDayLabel(dayStart)}
+                </div>
+                <ul className="divide-y divide-rule/60">
+                  {events.map(renderEvent)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {groups.later.length > 0 && (
+        <div>
+          <div className="text-[15px] font-semibold text-ink tracking-tight mb-2">
+            Later
+          </div>
+          <ul className="divide-y divide-rule/60">
+            {groups.later.map(renderEvent)}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

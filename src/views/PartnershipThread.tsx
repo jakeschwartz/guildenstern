@@ -260,42 +260,49 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             No messages yet. {partner ? `Say hi to ${partner.name}.` : ""}
           </div>
         )}
-        {thread.messages.map((m) => {
-          const author =
-            m.author.kind === "human"
-              ? usersById.get(m.author.userId) ?? null
-              : null;
-          const isSelf =
-            m.author.kind === "human" && m.author.userId === currentUserId;
-          // Per-party rendering: if this is the partner's message AND it
-          // produced ops cards, the reader sees the routed cards (Otis's
-          // summary in-thread) instead of the raw burst text. The sender still sees
-          // their own bubble — they wrote the riff, we don't re-summarize it
-          // back at them. See UX_SPEC §3.07.
-          const cardsFromThis = cardsByMessage.get(m.id);
-          if (!isSelf && cardsFromThis && cardsFromThis.length > 0) {
+        {thread.messages
+          // Chat stays a chat. Otis lives in the items pane and the status
+          // strip — he doesn't speak in conversation. Every agent message
+          // (echoes, running summaries, status changes) is filtered here.
+          // The data still exists for state purposes (cards in ops_cards,
+          // summaries via summary_key); we just don't render it as chat.
+          .filter((m) => m.author.kind === "human")
+          .map((m) => {
+            const author =
+              m.author.kind === "human"
+                ? usersById.get(m.author.userId) ?? null
+                : null;
+            const isSelf =
+              m.author.kind === "human" && m.author.userId === currentUserId;
+            const cardsFromThis = cardsByMessage.get(m.id);
+            const itemCount = cardsFromThis?.length ?? 0;
             return (
-              <RoutedBurst
-                key={m.id}
-                cards={cardsFromThis}
-                author={author}
-                timestamp={m.createdAt}
-                currentUserId={currentUserId}
-                partnerId={partnerId}
-                usersById={usersById}
-                threadId={thread.id}
-              />
+              <div key={m.id} className="flex flex-col gap-1">
+                <MessageBubble
+                  message={m}
+                  author={author}
+                  isSelf={isSelf}
+                />
+                {/* iMessage-tapback-style indicator: when this message
+                    produced items, show a quiet pill below it. Tap → swipes
+                    to the items pane where state lives. */}
+                {itemCount > 0 && (
+                  <button
+                    onClick={() => goToPane(PANE_ITEMS)}
+                    className={`${
+                      isSelf ? "self-end" : "self-start"
+                    } text-[11px] text-otis flex items-center gap-1 px-2 py-0.5 rounded-full bg-otis-tint/40 hover:bg-otis-tint/60 transition-colors`}
+                  >
+                    <span aria-hidden>✓</span>
+                    <span>
+                      Otis tracked {itemCount}
+                      {itemCount === 1 ? " item" : " items"}
+                    </span>
+                  </button>
+                )}
+              </div>
             );
-          }
-          return (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              author={author}
-              isSelf={isSelf}
-            />
-          );
-        })}
+          })}
         </div>
 
         {/* Pane 2 — Items queue. Same OpsQueue UI as the bottom sheet, but
@@ -808,90 +815,11 @@ const OpsQueue = ({
 };
 
 // ============================================================================
-// RoutedBurst — inline render of a partner's burst, as seen by the receiver.
-// Same data as a chat message, but rendered as the Otis-routed cards instead
-// of the original text. The sender of the burst still sees their own raw
-// text bubble — that asymmetry is the whole point of per-party rendering.
-// (Spec terminology note: §3.07 says "Mira sorts Jenny's burst" — Mira is the
-// routing logic. The in-thread VOICE is Otis, who lives in the partnership.)
-//
-// Inline cards are TRIAGEABLE in place — same toggle/refile affordances as
-// the Sheet OpsQueue. The Sheet stays as the cross-burst consolidated view.
+// (RoutedBurst — removed. The inline card-stack render of a partner's burst
+// inside chat made the chat feel like a status feed instead of a conversation.
+// State now lives entirely in the Items pane; the chat message gets a small
+// tapback-style "✓ Otis tracked N items" pill that links to the pane.)
 // ============================================================================
-
-type RoutedBurstProps = {
-  cards: OpsCard[];
-  author: User | null;
-  timestamp: number;
-  currentUserId: string;
-  partnerId: string;
-  usersById: Map<string, User>;
-  threadId: string;
-};
-
-const RoutedBurst = ({
-  cards,
-  author,
-  timestamp,
-  currentUserId,
-  partnerId,
-  usersById,
-  threadId,
-}: RoutedBurstProps) => {
-  // Group by bucket within the burst so categorization is legible at a glance.
-  const byBucket: Record<OpsBucket, OpsCard[]> = {
-    today: [],
-    week: [],
-    ongoing: [],
-    long: [],
-  };
-  for (const c of cards) byBucket[c.bucket].push(c);
-  for (const k of BUCKET_ORDER) {
-    byBucket[k].sort((a, b) => a.createdAt - b.createdAt);
-  }
-
-  const senderName = author?.name?.split(" ")[0] ?? "they";
-
-  return (
-    <div className="flex flex-col gap-2 -mx-2">
-      <div className="flex items-baseline gap-2 px-2">
-        {author && <Avatar initials={author.initials} size="sm" />}
-        <span className="text-[11.5px] text-otis">
-          Otis sorted {senderName}'s items
-        </span>
-        <span className="ml-auto text-[11px] text-muted">
-          {formatClock(timestamp)}
-        </span>
-      </div>
-      <div className="rounded-2xl border border-rule bg-card/40 px-3 py-2 flex flex-col gap-3">
-        {BUCKET_ORDER.map((bucket) => {
-          const group = byBucket[bucket];
-          if (group.length === 0) return null;
-          return (
-            <div key={bucket}>
-              <div className="smallcaps text-[10px] text-muted mb-1">
-                {BUCKET_LABELS[bucket]}
-              </div>
-              <ul className="divide-y divide-rule/40">
-                {group.map((card) => (
-                  <OpsCardRow
-                    key={card.id}
-                    card={card}
-                    currentUserId={currentUserId}
-                    partnerId={partnerId}
-                    usersById={usersById}
-                    threadId={threadId}
-                    compact
-                  />
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
 
 // ============================================================================
 // ConflictPanel — inline calendar-conflict callout shown beneath a Sheet row

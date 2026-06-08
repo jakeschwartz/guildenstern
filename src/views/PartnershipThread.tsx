@@ -272,12 +272,23 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           </div>
         )}
         {thread.messages
-          // Chat stays a chat. Otis lives in the items pane and the status
-          // strip — he doesn't speak in conversation. Every agent message
-          // (echoes, running summaries, status changes) is filtered here.
-          // The data still exists for state purposes (cards in ops_cards,
-          // summaries via summary_key); we just don't render it as chat.
-          .filter((m) => m.author.kind === "human")
+          // Chat stays a chat. Hide Otis's NOISE — burst echoes ("Got it —
+          // A, B, C. Sound right?") and running summaries ("Jenny's got:",
+          // "Jake done:", "Jake passed X to Y"). Those live in the items
+          // pane and the status strip; they don't speak in conversation.
+          //
+          // BUT keep Otis's conversational responses (when one of you
+          // addresses him directly: "Otis, what do you think?"). Those are
+          // the moments Otis is in the room talking with you.
+          .filter((m) => {
+            if (m.author.kind === "human") return true;
+            const body = m.body;
+            if (/^got it[\s—-]/i.test(body)) return false; // burst echo
+            // Running summaries: "Name's got:", "Name done:", "Name passed"
+            if (/^[\w'-]+(?:'s got: | done: | passed )/i.test(body))
+              return false;
+            return true;
+          })
           .map((m) => {
             const author =
               m.author.kind === "human"

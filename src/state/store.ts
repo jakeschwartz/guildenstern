@@ -136,32 +136,58 @@ const subscribeThread = (threadId: string) => {
   if (subscribedThreadIds.has(threadId)) return;
   subscribedThreadIds.add(threadId);
   realtimeUnsubs.push(
-    db.subscribeToThreadMessages(threadId, (row) => {
-      const msg = messageRowToMessage(row);
-      const threads = state.threads.map((t) => {
-        if (t.id !== threadId) return t;
-        // Already have the canonical row? Skip.
-        if (t.messages.some((m) => m.id === msg.id)) return t;
-        // If there's a matching optimistic row (same author + body), replace
-        // it with the canonical. Otherwise the user sees their own message twice.
-        const optimisticIdx = t.messages.findIndex(
-          (m) =>
-            m.id.startsWith("optimistic-") &&
-            m.body === msg.body &&
-            m.author.kind === msg.author.kind &&
-            (msg.author.kind === "human" && m.author.kind === "human"
-              ? m.author.userId === msg.author.userId
-              : true),
-        );
-        if (optimisticIdx >= 0) {
-          const replaced = [...t.messages];
-          replaced[optimisticIdx] = msg;
-          return { ...t, messages: replaced };
-        }
-        return { ...t, messages: [...t.messages, msg] };
-      });
-      setState({ threads });
-    }),
+    db.subscribeToThreadMessages(
+      threadId,
+      (row) => {
+        const msg = messageRowToMessage(row);
+        const threads = state.threads.map((t) => {
+          if (t.id !== threadId) return t;
+          if (t.messages.some((m) => m.id === msg.id)) return t;
+          const optimisticIdx = t.messages.findIndex(
+            (m) =>
+              m.id.startsWith("optimistic-") &&
+              m.body === msg.body &&
+              m.author.kind === msg.author.kind &&
+              (msg.author.kind === "human" && m.author.kind === "human"
+                ? m.author.userId === msg.author.userId
+                : true),
+          );
+          if (optimisticIdx >= 0) {
+            const replaced = [...t.messages];
+            replaced[optimisticIdx] = msg;
+            return { ...t, messages: replaced };
+          }
+          return { ...t, messages: [...t.messages, msg] };
+        });
+        setState({ threads });
+      },
+      // UPDATE: Otis running-summary messages get their body edited in place
+      // by the drain function as the actor does more things. Replace the
+      // matching message in our state with the new row.
+      (row) => {
+        const msg = messageRowToMessage(row);
+        const threads = state.threads.map((t) => {
+          if (t.id !== threadId) return t;
+          return {
+            ...t,
+            messages: t.messages.map((m) => (m.id === msg.id ? msg : m)),
+          };
+        });
+        setState({ threads });
+      },
+      // DELETE: Pass that empties an Accept summary deletes the message row
+      // outright. Drop it from local state.
+      (id) => {
+        const threads = state.threads.map((t) => {
+          if (t.id !== threadId) return t;
+          return {
+            ...t,
+            messages: t.messages.filter((m) => m.id !== id),
+          };
+        });
+        setState({ threads });
+      },
+    ),
   );
   // Partnership-thread ops_cards land here in realtime too — the agent-respond
   // edge function inserts them ahead of the "Got it — …" echo, so by the time

@@ -270,7 +270,13 @@ export async function sendMessage(
 export function subscribeToThreadMessages(
   threadId: string,
   onInsert: (row: MessageRow) => void,
+  onUpdate?: (row: MessageRow) => void,
+  onDelete?: (id: string) => void,
 ) {
+  // UPDATE matters now: Otis running-summary messages get their body
+  // edited in place as the actor does more things. DELETE matters because
+  // an Accept summary that becomes empty (Jake passed everything back)
+  // gets the message row deleted entirely.
   const channel = supabase
     .channel(`messages:${threadId}`)
     .on(
@@ -282,6 +288,29 @@ export function subscribeToThreadMessages(
         filter: `thread_id=eq.${threadId}`,
       },
       (payload) => onInsert(payload.new as MessageRow),
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "messages",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => onUpdate?.(payload.new as MessageRow),
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "messages",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => {
+        const old = payload.old as { id?: string };
+        if (old.id) onDelete?.(old.id);
+      },
     )
     .subscribe();
   return () => {

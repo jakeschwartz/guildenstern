@@ -103,6 +103,32 @@ export type CalendarEvent = {
   location: string | null;
 };
 
+// "Where we are" synthesis for a spoke. Otis writes one per non-default
+// partnership thread; cached in spoke_summaries and refreshed on demand.
+export type SpokeSectionItemStatus =
+  | "done"
+  | "open"
+  | "maybe"
+  | "action"
+  | "flagged";
+
+export type SpokeSectionItem = {
+  text: string;
+  status: SpokeSectionItemStatus;
+};
+
+export type SpokeSection = {
+  label: string;
+  items: SpokeSectionItem[];
+};
+
+export type SpokeSummary = {
+  threadId: ThreadId;
+  summary: string;
+  sections: SpokeSection[];
+  updatedAt: number; // ms epoch
+};
+
 export type PartnershipThread = {
   kind: "partnership";
   id: ThreadId;

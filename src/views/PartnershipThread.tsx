@@ -13,7 +13,18 @@ import { ThreadAnchor } from "../components/ThreadAnchor";
 import { Sheet } from "../components/Sheet";
 import { Avatar } from "../components/Avatar";
 import { formatClock } from "../lib/time";
-import type { Conflict, OpsBucket, OpsCard, User } from "../types";
+import {
+  getCachedSpokeSummary,
+  refreshSpokeSummary,
+} from "../lib/synthesize";
+import type {
+  Conflict,
+  OpsBucket,
+  OpsCard,
+  SpokeSectionItemStatus,
+  SpokeSummary,
+  User,
+} from "../types";
 
 type Props = {
   threadId: string;
@@ -232,7 +243,9 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             onClick={() => goToPane(i)}
             aria-label={
               i === PANE_CALENDAR
-                ? "Calendar"
+                ? thread.isDefault
+                  ? "Calendar"
+                  : "Where we are"
                 : i === PANE_CHAT
                   ? "Chat"
                   : "Items"
@@ -257,13 +270,15 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {/* Pane 0 — Calendar. Shows the user's actual Google Calendar
-            events grouped by Today / Tomorrow / This week / Later. Pure
-            display; partnership items stay in chat + queue panes. When
-            Otis catches calendar conflicts (item time collides with an
-            event here), the ⚠ surfaces ON THE CARD, not here. */}
+        {/* Pane 0 — Left pane. Main partnership thread: Calendar (your
+            Google events). Spoke (focused thread): "Where we are" — an
+            Otis-synthesized topic-aware summary of the discussion so far. */}
         <div className="w-full shrink-0 snap-start overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
-          <CalendarPane />
+          {thread.isDefault ? (
+            <CalendarPane />
+          ) : (
+            <WhereWeArePane threadId={thread.id} title={thread.title} />
+          )}
         </div>
 
         {/* Pane 1 — Chat. The original message stream, untouched. */}
@@ -582,6 +597,172 @@ const CalendarPane = () => {
           </ul>
         </div>
       )}
+    </div>
+  );
+};
+
+// ============================================================================
+// WhereWeArePane — swipe-left pane for SPOKES (non-default partnership
+// threads). Otis writes a topic-aware synthesis: a 1-3 sentence summary
+// plus N sections he names after what's actually being discussed ("Invite
+// list", "Venue", "Date" for a party — not generic "Decided/Open").
+// Auto-refreshes on mount if the cached version is >5min old; manual
+// Refresh button always available.
+// ============================================================================
+
+const STATUS_GLYPH: Record<SpokeSectionItemStatus, string> = {
+  done: "✓",
+  open: "·",
+  maybe: "?",
+  action: "→",
+  flagged: "⚠",
+};
+
+const STATUS_COLOR: Record<SpokeSectionItemStatus, string> = {
+  done: "text-otis",
+  open: "text-muted",
+  maybe: "text-muted",
+  action: "text-attention",
+  flagged: "text-attention",
+};
+
+const fmtAgo = (ms: number): string => {
+  const diff = Date.now() - ms;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+};
+
+const STALE_MS = 5 * 60 * 1000;
+
+type WhereWeArePaneProps = {
+  threadId: string;
+  title: string;
+};
+
+const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
+  const [summary, setSummary] = useState<SpokeSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // On mount: read the cached row first (instant); if it's stale or missing,
+  // kick off a fresh synthesis.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const cached = await getCachedSpokeSummary(threadId);
+      if (!alive) return;
+      setSummary(cached);
+      const isStale =
+        !cached || Date.now() - cached.updatedAt > STALE_MS;
+      if (isStale) {
+        setLoading(true);
+        const fresh = await refreshSpokeSummary(threadId);
+        if (!alive) return;
+        if (fresh) setSummary(fresh);
+        else if (!cached) setError("Couldn't synthesize yet.");
+        setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [threadId]);
+
+  const onRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    const fresh = await refreshSpokeSummary(threadId);
+    if (fresh) setSummary(fresh);
+    else setError("Refresh failed.");
+    setLoading(false);
+  };
+
+  // Empty / first-load state.
+  if (!summary && loading) {
+    return (
+      <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
+        <div className="smallcaps text-[10.5px] text-otis mb-3">
+          where we are
+        </div>
+        Otis is reading the conversation…
+      </div>
+    );
+  }
+  if (!summary) {
+    return (
+      <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
+        <div className="smallcaps text-[10.5px] text-otis mb-3">
+          where we are
+        </div>
+        {error ?? "Not enough conversation yet for Otis to synthesize."}
+        <div className="mt-4">
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
+          >
+            {loading ? "Working…" : "Try again"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 pt-5 pb-12 flex flex-col gap-6">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="smallcaps text-[10.5px] text-otis">
+          where we are
+        </span>
+        <span className="text-[10.5px] text-muted">
+          updated {fmtAgo(summary.updatedAt)}
+        </span>
+      </div>
+
+      <div className="text-[14px] text-ink leading-relaxed">
+        {summary.summary}
+      </div>
+
+      {summary.sections.map((sec, i) => (
+        <div key={`${sec.label}-${i}`}>
+          <div className="smallcaps text-[10.5px] text-muted mb-2">
+            {sec.label}
+          </div>
+          <ul className="flex flex-col gap-1.5">
+            {sec.items.map((item, j) => (
+              <li
+                key={`${item.text}-${j}`}
+                className="flex items-baseline gap-2.5 text-[13.5px] leading-snug text-ink"
+              >
+                <span
+                  aria-hidden
+                  className={`shrink-0 w-4 text-[12px] font-semibold ${STATUS_COLOR[item.status]}`}
+                >
+                  {STATUS_GLYPH[item.status]}
+                </span>
+                <span className="flex-1 min-w-0">{item.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      <div className="pt-2">
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
+        >
+          {loading ? "Working…" : "Refresh"}
+        </button>
+      </div>
+
+      <div className="hidden">{title}</div>
     </div>
   );
 };

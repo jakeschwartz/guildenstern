@@ -16,6 +16,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { Session } from "@supabase/supabase-js";
 import * as db from "../lib/db";
 import * as google from "../lib/google";
+import { supabase } from "../lib/supabase";
 import type {
   CalendarEvent,
   Message,
@@ -377,6 +378,22 @@ export const createInviteForPartnership = async (
 export const redeemInviteCode = async (code: string): Promise<string> => {
   const partnershipId = await db.redeemInvite(code);
   return partnershipId;
+};
+
+// Open a focused side-channel thread inside a partnership (a "spoke" per
+// UX_SPEC §3.05). The main partnership thread stays; this is an additional
+// thread with isDefault=false and a topical title — same two members, same
+// Otis, separate conversation. Used when a topic gets nagged about in the
+// main thread and warrants its own room ("the birthday party", "summer
+// trip planning"). Re-hydrates so the new thread shows up in the inbox.
+export const createPartnershipSpoke = async (
+  partnershipId: string,
+  title: string,
+): Promise<string> => {
+  const row = await db.createPartnershipThread(partnershipId, title, false);
+  const { data } = await supabase.auth.getSession();
+  if (data.session) await hydrate(data.session);
+  return row.id;
 };
 
 // ---------- ops cards ----------

@@ -86,15 +86,22 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
           const yours = t.opsCards.filter(
             (c) => c.status === "pending" && c.owner === currentUserId,
           ).length;
+          // A non-default partnership thread = a spoke. Show its topic title
+          // (not the partner name) and tag it as a focused thread so it's
+          // visually distinct from the main partnership row.
+          const isSpoke = !t.isDefault;
+          const partnerFirst = partnerName?.split(" ")[0] ?? "them";
           return (
             <ListRow
               key={t.id}
               initials={partnerProfile?.initials ?? "·"}
-              title={partnerName ?? t.title}
-              preview={previewText(t, usersById)}
+              title={isSpoke ? t.title : partnerName ?? t.title}
+              preview={
+                isSpoke ? `with ${partnerFirst} · ${previewText(t, usersById)}` : previewText(t, usersById)
+              }
               timestamp={formatRelative(lastActivity(t))}
               pending={yours > 0}
-              tag="partnership"
+              tag={isSpoke ? "focused" : "partnership"}
               otisCorner
               onOpen={() => onOpen(t.id)}
             />

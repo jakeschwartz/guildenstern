@@ -8,6 +8,7 @@ import { PersonalThread } from "./views/PersonalThread";
 import { Login } from "./views/Login";
 import { InvitePartner } from "./views/InvitePartner";
 import { JoinPartnership } from "./views/JoinPartnership";
+import { OpenSpoke } from "./views/OpenSpoke";
 import {
   hydrate,
   seedDevState,
@@ -135,6 +136,7 @@ export const App = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [spokeOpen, setSpokeOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleScopes, setGoogleScopes] = useState<string[]>([]);
@@ -165,6 +167,7 @@ export const App = () => {
     setMenuOpen(false);
     setInviteOpen(false);
     setJoinOpen(false);
+    setSpokeOpen(false);
   };
 
   // --- gates ---
@@ -288,6 +291,24 @@ export const App = () => {
               </div>
             </button>
           </li>
+          {partnerships.length > 0 && (
+            <li>
+              <button
+                onClick={() => {
+                  closeAllSheets();
+                  setSpokeOpen(true);
+                }}
+                className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
+              >
+                <div className="text-[15px] font-semibold text-ink tracking-tight">
+                  Open a focused thread
+                </div>
+                <div className="text-[12.5px] text-muted mt-0.5">
+                  Side channel for one topic
+                </div>
+              </button>
+            </li>
+          )}
           <li>
             <button
               onClick={() => {
@@ -368,6 +389,21 @@ export const App = () => {
         onForceClose={closeAllSheets}
       >
         <JoinPartnership variant="sheet" onDone={closeAllSheets} />
+      </Sheet>
+
+      <Sheet
+        open={spokeOpen}
+        onClose={() => setSpokeOpen(false)}
+        onForceClose={closeAllSheets}
+      >
+        <OpenSpoke
+          partnershipId={partnerships[0]?.id ?? ""}
+          onCreated={(threadId) => {
+            setRoute({ name: "partnership", threadId });
+            closeAllSheets();
+          }}
+          onCancel={closeAllSheets}
+        />
       </Sheet>
     </Frame>
   );

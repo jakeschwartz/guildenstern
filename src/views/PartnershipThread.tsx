@@ -158,31 +158,42 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       <ThreadAnchor onBack={onBack} onExpand={() => setSheetOpen(true)}>
         {partner ? (
           <>
-            {/* Partner avatar + Otis avatar shown together: the partnership is
-                you + your partner + Otis-as-third-party. Making Otis visible
-                in the chrome signals that the thread has a mechanism, not just
-                two humans chatting. */}
             <div className="relative shrink-0">
               <Avatar initials={partner.initials} size="sm" />
               <div className="absolute -bottom-1 -right-1 ring-2 ring-paper rounded-squircle">
                 <Avatar initials="O" size="sm" voice="otis" />
               </div>
             </div>
-            <span className="text-[17px] font-semibold text-ink truncate tracking-tight ml-1">
-              {partner.name}
-            </span>
-            <span className="smallcaps text-[10px] text-otis ml-1 shrink-0">
-              partnership
-            </span>
+            {thread.isDefault ? (
+              <>
+                <span className="text-[17px] font-semibold text-ink truncate tracking-tight ml-1">
+                  {partner.name}
+                </span>
+                <span className="smallcaps text-[10px] text-otis ml-1 shrink-0">
+                  partnership
+                </span>
+              </>
+            ) : (
+              <>
+                {/* Spoke header: topic title is the headline; partner is
+                    shown as secondary context ("with Jenny"). */}
+                <div className="flex flex-col min-w-0 ml-1">
+                  <span className="text-[16px] font-semibold text-ink truncate tracking-tight">
+                    {thread.title}
+                  </span>
+                  <span className="text-[10.5px] text-muted truncate -mt-0.5">
+                    with {partner.name.split(" ")[0]}
+                  </span>
+                </div>
+                <span className="smallcaps text-[10px] text-otis ml-1 shrink-0">
+                  focused
+                </span>
+              </>
+            )}
           </>
         ) : (
           <span className="text-[17px] font-semibold text-muted truncate tracking-tight">
             Waiting for partner to join…
-          </span>
-        )}
-        {!thread.isDefault && (
-          <span className="text-[12px] text-muted shrink-0">
-            · {thread.title}
           </span>
         )}
       </ThreadAnchor>

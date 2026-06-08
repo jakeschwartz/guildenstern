@@ -22,22 +22,50 @@ const APNS_ENV: "production" | "sandbox" =
 
 let registered = false;
 
+// Visible-on-device diagnostic. Keeps a string in window so the inbox can
+// surface push state without Safari Web Inspector. Cleared once we know
+// notifications work.
+function setPushStatus(s: string) {
+  try {
+    (window as unknown as { __pushStatus?: string }).__pushStatus = s;
+    window.dispatchEvent(new CustomEvent("guildenstern:push-status"));
+  } catch {
+    /* noop */
+  }
+}
+
+export function getPushStatus(): string {
+  return (
+    (window as unknown as { __pushStatus?: string }).__pushStatus ??
+    "not started"
+  );
+}
+
 export async function registerPushIfNative(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isNativePlatform()) {
+    setPushStatus("web (not native)");
+    return;
+  }
   if (registered) return;
   registered = true;
 
   try {
+    setPushStatus("requesting permission");
     const perm = await PushNotifications.requestPermissions();
     if (perm.receive !== "granted") {
-      console.warn("[guildenstern] push permission denied:", perm.receive);
+      setPushStatus(`permission ${perm.receive}`);
       return;
     }
 
-    // When the token arrives, upsert it into push_tokens.
+    setPushStatus("permission granted, registering");
+
     await PushNotifications.addListener("registration", async (token) => {
+      setPushStatus(`token received (${token.value.slice(0, 8)}…)`);
       const user = (await supabase.auth.getUser()).data.user;
-      if (!user) return;
+      if (!user) {
+        setPushStatus("token received, but no user");
+        return;
+      }
       const { error } = await supabase
         .from("push_tokens")
         .upsert(
@@ -51,18 +79,31 @@ export async function registerPushIfNative(): Promise<void> {
           { onConflict: "token" },
         );
       if (error) {
-        console.error("[guildenstern] failed to save push token", error);
+        setPushStatus(`upsert error: ${error.message}`);
       } else {
-        console.log("[guildenstern] push token saved");
+        setPushStatus("✓ token saved");
       }
     });
 
     await PushNotifications.addListener("registrationError", (err) => {
-      console.error("[guildenstern] push registrationError", err);
+      setPushStatus(
+        `registrationError: ${typeof err === "string" ? err : JSON.stringify(err)}`,
+      );
     });
 
     await PushNotifications.register();
+
+    // If neither registration nor registrationError fires within 5s,
+    // something is silently failing.
+    setTimeout(() => {
+      const current = getPushStatus();
+      if (current === "permission granted, registering") {
+        setPushStatus("silent: no registration event after 5s");
+      }
+    }, 5000);
   } catch (e) {
-    console.error("[guildenstern] push registration failed", e);
+    setPushStatus(
+      `exception: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 }

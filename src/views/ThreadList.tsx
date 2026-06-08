@@ -2,11 +2,13 @@
 // PINNED). Group/partnership threads with squircle avatars, no chevron,
 // pending dot when something needs you.
 
+import { useEffect, useState } from "react";
 import { useStore } from "../state/store";
 import type { PartnershipThread, PersonalThread, User } from "../types";
 import { formatRelative } from "../lib/time";
 import { InboxHeader } from "../components/InboxHeader";
 import { ListRow } from "../components/ListRow";
+import { getPushStatus } from "../lib/push";
 
 type Props = {
   onOpen: (threadId: string) => void;
@@ -57,9 +59,29 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
     .filter((t): t is PartnershipThread => t.kind === "partnership")
     .sort((a, b) => lastActivity(b) - lastActivity(a));
 
+  // Push-status diagnostic strip — temporary until we know notifications
+  // are wired end-to-end. Updates whenever push.ts dispatches the custom
+  // event. Hidden once status is "✓ token saved".
+  const [pushStatus, setPushStatusState] = useState(() => getPushStatus());
+  useEffect(() => {
+    const update = () => setPushStatusState(getPushStatus());
+    window.addEventListener("guildenstern:push-status", update);
+    const interval = setInterval(update, 1000);
+    return () => {
+      window.removeEventListener("guildenstern:push-status", update);
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col h-full">
       <InboxHeader onFilter={onFilter} onNew={onNew} onMenu={onMenu} />
+
+      {pushStatus !== "✓ token saved" && pushStatus !== "web (not native)" && (
+        <div className="bg-attention-tint/40 px-3 py-1 text-[10.5px] text-attention border-b border-rule">
+          push: {pushStatus}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {personalThread && (

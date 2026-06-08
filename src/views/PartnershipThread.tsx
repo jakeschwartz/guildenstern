@@ -154,7 +154,19 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
   }, [thread.opsCards]);
 
   return (
-    <div className="flex flex-col h-full">
+    // Bound the chat area ABOVE the composer (and keyboard). Was: chat
+    // extended to viewport bottom and we tried to pad-bottom by the composer
+    // height — fragile, easy to undercount, and the last bubble kept getting
+    // hidden behind the composer. Now the root container's paddingBottom
+    // matches the composer's footprint exactly. Composer (position:fixed)
+    // floats in that bottom band; chat ends at the composer's top edge.
+    <div
+      className="flex flex-col h-full"
+      style={{
+        paddingBottom:
+          "calc(var(--composer-h, 56px) + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+      }}
+    >
       <ThreadAnchor onBack={onBack} onExpand={() => setSheetOpen(true)}>
         {partner ? (
           <>
@@ -263,7 +275,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             paddingLeft: 32,
             paddingRight: 32,
             paddingBottom:
-              "calc(var(--composer-h, 56px) + 24px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+              "16px",
           }}
         >
         {thread.messages.length === 0 && (
@@ -335,7 +347,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           className="w-full shrink-0 snap-start overflow-y-auto"
           style={{
             paddingBottom:
-              "calc(var(--composer-h, 56px) + 24px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+              "16px",
           }}
         >
           <div className="px-5 pt-5">

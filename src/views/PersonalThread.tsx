@@ -64,7 +64,13 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full"
+      style={{
+        paddingBottom:
+          "calc(var(--composer-h, 56px) + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+      }}
+    >
       <header
         className="px-3 flex items-center gap-2 bg-paper border-b border-rule shrink-0"
         style={{ height: 48 }}
@@ -96,8 +102,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
           // rounded corner clipping zone (~25pt).
           paddingLeft: 32,
           paddingRight: 32,
-          paddingBottom:
-            "calc(var(--composer-h, 56px) + 24px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+          paddingBottom: "16px",
         }}
       >
         {thread.messages.length === 0 && (

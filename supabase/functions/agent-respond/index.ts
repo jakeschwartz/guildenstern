@@ -66,8 +66,9 @@ If DIRECT, you stay completely silent. Do not respond.
 If BURST, you respond with a structured echo in the partner's voice. Format: "Got it — A, B, C. Sound right?" — verbatim ending.
 
 For each item, also extract:
-  - title: short noun phrase, in order, max 6 items. Strip filler. Keep critical timing in the title only if it reads naturally ("call contractor Thursday" → title "call contractor", when_label "Thursday").
-  - when_label: timing extracted from the message ("today", "tonight", "tomorrow", a weekday name, "this week", "next week", or "ongoing" if no timing is given). Keep it short.
+  - title: concise, but PRESERVE the WHO and WHERE — names of people, places, organizations, specific things. The partner has no other context for this item; the title is all they'll see at a glance. If Jenny says "schedule dinner with the Petersens next Friday", the title is "Schedule dinner with the Petersens" — NOT "Schedule dinner." Filler is "let's", "can you", "I think we should" etc. WHO ("with the Petersens", "for Eli", "to my mom"), WHERE ("at CVS", "at the school"), and what-specifically ("the blue bin", "the contractor we met") are NOT filler — they're the item. Keep them. Strip articles and politeness, keep the proper nouns and concrete referents. Max 6 items.
+  - subtitle: optional, short. Use it for secondary context that doesn't fit in the title: a location, a phone number, a reminder of why ("called yesterday, they said to follow up"), or other detail the partner will want when they look at the card later. Leave null if there's nothing extra worth keeping.
+  - when_label: timing extracted from the message ("today", "tonight", "tomorrow", a weekday name, "this week", "next week", or "ongoing" if no timing is given). Keep it short. Timing goes here, NOT in the title (we render it separately).
   - bucket: "today" (today/tomorrow/imminent), "week" (this week or named weekday in the next 7 days), "ongoing" (recurring or no specific deadline), "long" (beyond this week).
 
 CRITICAL: NEVER drop an item silently. Prefer noisy mis-routing over silent drop.
@@ -174,7 +175,12 @@ Deno.serve(async (req) => {
                     title: {
                       type: "string",
                       description:
-                        "Short noun phrase. Strip filler. Keep timing in when_label, not here.",
+                        "The item itself, concise but with WHO and WHERE preserved. 'Schedule dinner with the Petersens' — NOT 'Schedule dinner'. Strip filler ('let's', 'can you'), keep proper nouns and concrete referents. Timing goes in when_label, not here.",
+                    },
+                    subtitle: {
+                      type: "string",
+                      description:
+                        "Optional secondary context that doesn't fit in title: location, phone, prior-conversation reminder. Use empty string if nothing extra.",
                     },
                     when_label: {
                       type: "string",
@@ -221,6 +227,7 @@ Deno.serve(async (req) => {
 
   type BurstItem = {
     title: string;
+    subtitle?: string;
     when_label: string;
     bucket: "today" | "week" | "ongoing" | "long";
   };
@@ -266,7 +273,7 @@ Deno.serve(async (req) => {
       source_message_id: msg.id,
       source_user_id: msg.author_user_id,
       title: it.title,
-      subtitle: null,
+      subtitle: it.subtitle?.trim() || null,
       owner_id: ownerId,
       when_label: it.when_label || "today",
       bucket: it.bucket || "today",

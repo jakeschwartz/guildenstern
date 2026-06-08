@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 type Props = {
   onSend: (body: string) => void;
@@ -7,9 +7,33 @@ type Props = {
 
 // position:fixed at the bottom of the viewport. Rides with the keyboard
 // via --kbd-h (set in lib/keyboard from Keyboard plugin events).
+// Max textarea height in px — roughly 5 lines at 16px text. Beyond this the
+// textarea scrolls internally instead of growing further, so the composer
+// can't eat the entire chat.
+const MAX_COMPOSER_TEXT_HEIGHT = 120;
+
 export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the textarea with content. Resets to "auto" first so it can
+  // also SHRINK when text is deleted. Also writes the resulting composer
+  // height to --composer-h on the document root so the message scroll areas
+  // can pad-bottom by the right amount and not hide content behind us.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, MAX_COMPOSER_TEXT_HEIGHT);
+    el.style.height = `${next}px`;
+    // Add ~16px to account for the vertical padding around the textarea.
+    const containerH = next + 16;
+    document.documentElement.style.setProperty(
+      "--composer-h",
+      `${Math.max(containerH, 56)}px`,
+    );
+  }, [value]);
+
   // After submit, iOS dismisses the keyboard by default. Re-focus the
   // textarea so the keyboard stays open and the user can keep typing
   // (iMessage-style conversation mode).
@@ -75,7 +99,8 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
         enterKeyHint="send"
         placeholder={placeholder}
         rows={1}
-        className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink"
+        style={{ maxHeight: MAX_COMPOSER_TEXT_HEIGHT }}
+        className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink overflow-y-auto"
       />
       <button
         onClick={submit}

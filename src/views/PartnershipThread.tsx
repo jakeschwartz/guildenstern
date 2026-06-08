@@ -263,7 +263,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             paddingLeft: 32,
             paddingRight: 32,
             paddingBottom:
-              "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+              "calc(var(--composer-h, 56px) + 16px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
           }}
         >
         {thread.messages.length === 0 && (
@@ -324,7 +324,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           className="w-full shrink-0 snap-start overflow-y-auto"
           style={{
             paddingBottom:
-              "calc(72px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+              "calc(var(--composer-h, 56px) + 16px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
           }}
         >
           <div className="px-5 pt-5">

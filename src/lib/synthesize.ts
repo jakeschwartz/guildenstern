@@ -38,39 +38,52 @@ export async function getCachedSpokeSummary(
 }
 
 // Trigger fresh synthesis. Calls the edge function; updates cache; returns
-// the new summary. Use when the cached version is stale or the user
-// explicitly tapped Refresh.
+// the new summary or a tagged error so the UI can display what went wrong
+// instead of just silently going empty.
+export type RefreshResult =
+  | { ok: true; summary: SpokeSummary }
+  | { ok: false; error: string };
+
 export async function refreshSpokeSummary(
   threadId: string,
-): Promise<SpokeSummary | null> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) return null;
-  const res = await fetch(`${SUPABASE_FN_URL}/synthesize-spoke`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ thread_id: threadId }),
-  });
-  if (!res.ok) {
-    console.error(
-      "[refreshSpokeSummary] failed",
-      res.status,
-      await res.text(),
-    );
-    return null;
+): Promise<RefreshResult> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return { ok: false, error: "Not signed in" };
+    const res = await fetch(`${SUPABASE_FN_URL}/synthesize-spoke`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ thread_id: threadId }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `HTTP ${res.status} ${text.slice(0, 120)}`,
+      };
+    }
+    const j = (await res.json()) as {
+      summary: string;
+      sections: SpokeSection[];
+      updated_at: string;
+    };
+    return {
+      ok: true,
+      summary: {
+        threadId,
+        summary: j.summary,
+        sections: j.sections,
+        updatedAt: new Date(j.updated_at).getTime(),
+      },
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
-  const j = (await res.json()) as {
-    summary: string;
-    sections: SpokeSection[];
-    updated_at: string;
-  };
-  return {
-    threadId,
-    summary: j.summary,
-    sections: j.sections,
-    updatedAt: new Date(j.updated_at).getTime(),
-  };
 }

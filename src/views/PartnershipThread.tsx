@@ -649,22 +649,28 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // On mount: read the cached row first (instant); if it's stale or missing,
-  // kick off a fresh synthesis.
+  // On mount: read the cached row first; if missing or stale, kick off a
+  // fresh synthesis. Errors are surfaced verbatim so we can see what failed.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const cached = await getCachedSpokeSummary(threadId);
+      const cached = await getCachedSpokeSummary(threadId).catch((e) => {
+        if (alive) setError(`cache read: ${e.message ?? String(e)}`);
+        return null;
+      });
       if (!alive) return;
       setSummary(cached);
-      const isStale =
-        !cached || Date.now() - cached.updatedAt > STALE_MS;
+      const isStale = !cached || Date.now() - cached.updatedAt > STALE_MS;
       if (isStale) {
         setLoading(true);
-        const fresh = await refreshSpokeSummary(threadId);
+        const result = await refreshSpokeSummary(threadId);
         if (!alive) return;
-        if (fresh) setSummary(fresh);
-        else if (!cached) setError("Couldn't synthesize yet.");
+        if (result.ok) {
+          setSummary(result.summary);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setLoading(false);
       }
     })();
@@ -676,93 +682,103 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
   const onRefresh = async () => {
     setLoading(true);
     setError(null);
-    const fresh = await refreshSpokeSummary(threadId);
-    if (fresh) setSummary(fresh);
-    else setError("Refresh failed.");
+    const result = await refreshSpokeSummary(threadId);
+    if (result.ok) {
+      setSummary(result.summary);
+    } else {
+      setError(result.error);
+    }
     setLoading(false);
   };
 
-  // Empty / first-load state.
-  if (!summary && loading) {
-    return (
-      <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
-        <div className="smallcaps text-[10.5px] text-otis mb-3">
-          where we are
-        </div>
-        Otis is reading the conversation…
-      </div>
-    );
-  }
-  if (!summary) {
-    return (
-      <div className="px-5 pt-8 pb-12 text-center text-[12.5px] text-muted leading-relaxed">
-        <div className="smallcaps text-[10.5px] text-otis mb-3">
-          where we are
-        </div>
-        {error ?? "Not enough conversation yet for Otis to synthesize."}
-        <div className="mt-4">
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
-          >
-            {loading ? "Working…" : "Try again"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-5 pt-5 pb-12 flex flex-col gap-6">
-      <div className="flex items-baseline justify-between gap-2">
+  // Always-rendered header — so the user can tell the pane is alive even
+  // before Otis returns. Shows the topic title + current state + Refresh.
+  const header = (
+    <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-col">
         <span className="smallcaps text-[10.5px] text-otis">
           where we are
         </span>
-        <span className="text-[10.5px] text-muted">
-          updated {fmtAgo(summary.updatedAt)}
+        <span className="text-[15px] font-semibold text-ink tracking-tight">
+          {title}
         </span>
       </div>
+      <span className="text-[10.5px] text-muted shrink-0">
+        {loading
+          ? "syncing…"
+          : summary
+            ? `updated ${fmtAgo(summary.updatedAt)}`
+            : "no synthesis yet"}
+      </span>
+    </div>
+  );
 
-      <div className="text-[14px] text-ink leading-relaxed">
-        {summary.summary}
-      </div>
+  const refreshButton = (
+    <button
+      onClick={onRefresh}
+      disabled={loading}
+      className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
+    >
+      {loading ? "Working…" : summary ? "Refresh" : "Have Otis read it now"}
+    </button>
+  );
 
-      {summary.sections.map((sec, i) => (
-        <div key={`${sec.label}-${i}`}>
-          <div className="smallcaps text-[10.5px] text-muted mb-2">
-            {sec.label}
-          </div>
-          <ul className="flex flex-col gap-1.5">
-            {sec.items.map((item, j) => (
-              <li
-                key={`${item.text}-${j}`}
-                className="flex items-baseline gap-2.5 text-[13.5px] leading-snug text-ink"
-              >
-                <span
-                  aria-hidden
-                  className={`shrink-0 w-4 text-[12px] font-semibold ${STATUS_COLOR[item.status]}`}
-                >
-                  {STATUS_GLYPH[item.status]}
-                </span>
-                <span className="flex-1 min-w-0">{item.text}</span>
-              </li>
-            ))}
-          </ul>
+  return (
+    <div className="px-5 pt-5 pb-12 flex flex-col gap-6">
+      {header}
+
+      {error && (
+        <div className="rounded-xl border border-attention/40 bg-attention-tint/30 px-3 py-2 text-[12px] text-attention leading-snug">
+          <div className="font-semibold mb-1">Otis hit a problem.</div>
+          <div className="font-mono text-[11px] break-words">{error}</div>
         </div>
-      ))}
+      )}
 
-      <div className="pt-2">
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
-        >
-          {loading ? "Working…" : "Refresh"}
-        </button>
-      </div>
+      {summary && (
+        <>
+          <div className="text-[14px] text-ink leading-relaxed">
+            {summary.summary}
+          </div>
+          {summary.sections.map((sec, i) => (
+            <div key={`${sec.label}-${i}`}>
+              <div className="smallcaps text-[10.5px] text-muted mb-2">
+                {sec.label}
+              </div>
+              <ul className="flex flex-col gap-1.5">
+                {sec.items.map((item, j) => (
+                  <li
+                    key={`${item.text}-${j}`}
+                    className="flex items-baseline gap-2.5 text-[13.5px] leading-snug text-ink"
+                  >
+                    <span
+                      aria-hidden
+                      className={`shrink-0 w-4 text-[12px] font-semibold ${STATUS_COLOR[item.status]}`}
+                    >
+                      {STATUS_GLYPH[item.status]}
+                    </span>
+                    <span className="flex-1 min-w-0">{item.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
 
-      <div className="hidden">{title}</div>
+      {!summary && !loading && !error && (
+        <div className="text-[12.5px] text-muted leading-relaxed">
+          Send a couple of messages back and forth in this thread, then tap
+          below to have Otis synthesize where things stand.
+        </div>
+      )}
+
+      {!summary && loading && (
+        <div className="text-[12.5px] text-muted leading-relaxed">
+          Otis is reading the conversation…
+        </div>
+      )}
+
+      <div className="pt-2">{refreshButton}</div>
     </div>
   );
 };

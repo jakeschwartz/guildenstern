@@ -14,24 +14,35 @@ const MAX_COMPOSER_TEXT_HEIGHT = 120;
 
 export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   const [value, setValue] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow the textarea with content. Resets to "auto" first so it can
-  // also SHRINK when text is deleted. Also writes the resulting composer
-  // height to --composer-h on the document root so the message scroll areas
-  // can pad-bottom by the right amount and not hide content behind us.
+  // also SHRINK when text is deleted. Writes the actual *measured* container
+  // height to --composer-h on the document root so message scroll areas can
+  // pad-bottom by the right amount and not hide content behind us.
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
     const next = Math.min(el.scrollHeight, MAX_COMPOSER_TEXT_HEIGHT);
     el.style.height = `${next}px`;
-    // Add ~16px to account for the vertical padding around the textarea.
-    const containerH = next + 16;
-    document.documentElement.style.setProperty(
-      "--composer-h",
-      `${Math.max(containerH, 56)}px`,
-    );
+    // Measure the actual container (which includes textarea + button + padding
+    // + border + any subtle visual chrome). More reliable than deriving it
+    // from the textarea height + a fudge factor.
+    const c = containerRef.current;
+    if (c) {
+      const h = c.offsetHeight;
+      document.documentElement.style.setProperty("--composer-h", `${h}px`);
+    }
+    // Always re-scroll any chat area to the bottom when our height changes
+    // so the latest message stays above the composer (otherwise typing a
+    // longer message pushes the last bubble behind us).
+    document
+      .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
+      .forEach((scroll) => {
+        scroll.scrollTop = scroll.scrollHeight;
+      });
   }, [value]);
 
   // After submit, iOS dismisses the keyboard by default. Re-focus the
@@ -56,6 +67,7 @@ export const Composer = ({ onSend, placeholder = "Message" }: Props) => {
   };
   return (
     <div
+      ref={containerRef}
       className="border-t border-rule bg-paper flex items-end gap-2 shrink-0"
       style={{
         position: "fixed",

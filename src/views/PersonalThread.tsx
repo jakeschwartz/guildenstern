@@ -97,7 +97,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
           paddingLeft: 32,
           paddingRight: 32,
           paddingBottom:
-            "calc(var(--composer-h, 56px) + 16px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
+            "calc(var(--composer-h, 56px) + 24px + var(--kbd-h, 0px) + var(--safe-b, 34px))",
         }}
       >
         {thread.messages.length === 0 && (

@@ -121,15 +121,16 @@ Deno.serve(async (req) => {
   if (!member)
     return new Response("not a member", { status: 403, headers: corsHeaders });
 
-  // Pull recent messages + ops cards. Cap at 15 messages so the Claude
-  // call returns within Supabase's edge-function timeout (~50s on free).
-  // "Load failed" client-side is what you get when this exceeds it.
+  // Pull recent messages + ops cards. Aggressively capped — Claude haiku
+  // with this tool schema gets slow fast as context grows, and "Load
+  // failed" client-side is what we see when total wall-clock exceeds
+  // Supabase's edge-function limit.
   const { data: messagesRaw } = await supabase
     .from("messages")
     .select("author_kind, author_user_id, body, created_at")
     .eq("thread_id", thread_id)
     .order("created_at", { ascending: false })
-    .limit(15);
+    .limit(10);
   const messages = (messagesRaw ?? []).reverse();
 
   const { data: cards } = await supabase
@@ -163,7 +164,7 @@ Deno.serve(async (req) => {
           ? "Otis"
           : profilesById.get(m.author_user_id ?? "") ?? "Partner";
       // Truncate to 200 chars per message; even shorter for agent (just header).
-      const body = m.body.length > 200 ? m.body.slice(0, 200) + "…" : m.body;
+      const body = m.body.length > 120 ? m.body.slice(0, 120) + "…" : m.body;
       return `${who}: ${body}`;
     })
     .join("\n");
@@ -177,10 +178,11 @@ Deno.serve(async (req) => {
     )
     .join("\n");
 
-  // Abort at 25s — under Supabase's 50s edge function timeout, so the
-  // client always gets a proper error message instead of "Load failed".
+  // Abort the Claude call at 15s. Whatever the actual edge-function or
+  // WebView timeout is, this stays well under it so we always return a
+  // useful error to the client instead of "Load failed".
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25_000);
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   let claudeRes: Response;
   try {
     claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -193,7 +195,7 @@ Deno.serve(async (req) => {
       signal: controller.signal,
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 400,
+        max_tokens: 250,
       system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
       tools: [
         {
@@ -281,7 +283,7 @@ Synthesize.`,
     console.error("[synthesize-spoke] claude fetch failed", e);
     return new Response(
       isAbort
-        ? "Claude took too long (>25s)"
+        ? "Claude took too long (>15s)"
         : `Claude fetch failed: ${e instanceof Error ? e.message : String(e)}`,
       { status: 504, headers: corsHeaders },
     );

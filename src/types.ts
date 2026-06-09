@@ -44,11 +44,17 @@ export type Conflict = {
   proposedWhen: string;
 };
 
+// Where in the thread this message belongs. 'main' = the partners' chat
+// (and Mira's personal thread). 'otis_chat' = the talk-to-Otis conversation
+// behind the synthesis pane in a spoke. Same thread, different surfaces.
+export type MessageContext = "main" | "otis_chat";
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
   body: string;
   createdAt: number;
+  context?: MessageContext;
   briefing?: {
     title: string;
     items: BriefingItem[];

@@ -108,12 +108,35 @@ The topic of this thread is: "{TOPIC}". Stay close to it. If the partners drift 
 
 Return only valid JSON matching the tool schema. Do not chat outside the schema. Do not preface.`;
 
+const SYSTEM_PROMPT_OTIS_CHAT = `You are Otis — directly addressed inside the "Where we are" pane of a focused thread. The partners opened this thread to work on: "{TOPIC}". They've tapped over to the synthesis side and are TALKING TO YOU specifically.
+
+You're not transcribing chatter between them here. They are addressing you. Respond every time — never stay silent in this mode.
+
+Respond conversationally. Be Otis: warm, concise, organized, pragmatic. Lowercase-y when natural. No "Here's where we are" preface. Speak with both partners — when one of them asks, your reply is visible to the other.
+
+What you can do:
+- Summarize the current state of the topic in your own words.
+- Suggest options or next steps.
+- Ask a clarifying question if the ask is vague.
+- Pick a side if explicitly asked.
+- Help organize: "Want me to add a 'budget' section?", "Should I split this?"
+- Note what's missing: "You haven't talked about a date yet."
+
+Keep it short — 1-3 sentences usually. You can ask a follow-up. Be the partner-on-shoulder who helps them move.
+
+Items handling: in this mode, treat bursts as conversational too. If they list a few things, acknowledge them naturally rather than extracting structured items — the structured synthesis is a separate process that already runs in the background.
+
+Set respond=true, kind="conversational", items=[]. ALWAYS respond — even direct/emotional traffic gets a brief reply here, because they tapped to talk to you.
+
+Return only valid JSON matching the tool schema. Do not preface.`;
+
 type WebhookPayload = {
   type: "INSERT";
   table: "messages";
   record: {
     id: string;
     thread_id: string;
+    context?: "main" | "otis_chat";
     author_kind: "human" | "agent";
     author_user_id: string | null;
     body: string;
@@ -148,8 +171,14 @@ Deno.serve(async (req) => {
   if (tErr || !thread) {
     return new Response("thread not found", { status: 200 });
   }
+  const isOtisChat = msg.context === "otis_chat";
   let systemPrompt: string;
-  if (thread.kind === "personal") {
+  if (isOtisChat) {
+    systemPrompt = SYSTEM_PROMPT_OTIS_CHAT.replace(
+      "{TOPIC}",
+      thread.title || "this topic",
+    );
+  } else if (thread.kind === "personal") {
     systemPrompt = SYSTEM_PROMPT_PERSONAL;
   } else if (thread.is_default === false) {
     systemPrompt = SYSTEM_PROMPT_SPOKE.replace(
@@ -160,13 +189,21 @@ Deno.serve(async (req) => {
     systemPrompt = SYSTEM_PROMPT_PARTNERSHIP;
   }
 
-  // Pull recent context (the last 10 messages) so Claude can disambiguate.
-  const { data: recent } = await supabase
+  // Pull recent context. For otis_chat, ONLY the otis_chat history (not the
+  // main back-and-forth between the partners); for everything else, the
+  // main conversation.
+  const recentQuery = supabase
     .from("messages")
     .select("author_kind, body, created_at")
     .eq("thread_id", msg.thread_id)
     .order("created_at", { ascending: false })
     .limit(10);
+  if (isOtisChat) {
+    recentQuery.eq("context", "otis_chat");
+  } else {
+    recentQuery.neq("context", "otis_chat");
+  }
+  const { data: recent } = await recentQuery;
   const context = (recent ?? [])
     .reverse()
     .map((m) => `${m.author_kind === "agent" ? "Agent" : "Partner"}: ${m.body}`)
@@ -330,11 +367,14 @@ Deno.serve(async (req) => {
   }
 
   // Insert the structured echo as an agent message in the same thread.
+  // Preserve the context so otis_chat responses stay in that surface and
+  // don't leak into the main chat.
   const { error: insertErr } = await supabase.from("messages").insert({
     thread_id: msg.thread_id,
     author_kind: "agent",
     author_user_id: null,
     body: decision.ack.trim(),
+    context: msg.context ?? "main",
   });
   if (insertErr) {
     console.error("Failed to insert agent ack", insertErr);

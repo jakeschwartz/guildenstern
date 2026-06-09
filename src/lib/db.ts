@@ -231,6 +231,7 @@ export type MessageRow = {
   fold_group_id: string | null;
   fold_summary: string | null;
   created_at: string;
+  context: "main" | "otis_chat";
 };
 
 export async function getMessages(
@@ -250,6 +251,7 @@ export async function getMessages(
 export async function sendMessage(
   threadId: string,
   body: string,
+  context: "main" | "otis_chat" = "main",
 ): Promise<MessageRow> {
   const user = (await supabase.auth.getUser()).data.user;
   if (!user) throw new Error("Not authenticated");
@@ -260,6 +262,7 @@ export async function sendMessage(
       author_kind: "human",
       author_user_id: user.id,
       body,
+      context,
     })
     .select("*")
     .single();

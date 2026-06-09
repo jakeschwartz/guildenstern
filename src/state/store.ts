@@ -100,6 +100,7 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     author,
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
+    context: row.context ?? "main",
     briefing,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,
@@ -329,20 +330,25 @@ export const seedDevState = (next: Partial<State>) => {
 
 // ---------- mutations ----------
 
-export const sendMessage = async (threadId: string, body: string) => {
+export const sendMessage = async (
+  threadId: string,
+  body: string,
+  context: "main" | "otis_chat" = "main",
+) => {
   // Optimistic: append locally; realtime will reconcile the canonical row.
   const optimistic: Message = {
     id: `optimistic-${Date.now()}`,
     author: { kind: "human", userId: state.currentUserId },
     body,
     createdAt: Date.now(),
+    context,
   };
   const threads = state.threads.map((t) =>
     t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
   );
   setState({ threads });
   try {
-    await db.sendMessage(threadId, body);
+    await db.sendMessage(threadId, body, context);
   } catch (e) {
     // Loud failure: log the raw error AND alert so dev iteration without
     // Safari Web Inspector still surfaces the problem. The optimistic message

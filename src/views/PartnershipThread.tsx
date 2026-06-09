@@ -7,6 +7,7 @@ import {
   setOpsCardStatus,
   useStore,
 } from "../state/store";
+import { Voice } from "../components/Voice";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { ThreadAnchor } from "../components/ThreadAnchor";
@@ -20,6 +21,7 @@ import {
 } from "../lib/synthesize";
 import type {
   Conflict,
+  Message,
   OpsBucket,
   OpsCard,
   SpokeSectionItemStatus,
@@ -328,6 +330,9 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           // addresses him directly: "Otis, what do you think?"). Those are
           // the moments Otis is in the room talking with you.
           .filter((m) => {
+            // Hide messages that belong to the talk-to-Otis conversation
+            // on the synthesis pane — they have their own surface there.
+            if (m.context === "otis_chat") return false;
             if (m.author.kind === "human") return true;
             const body = m.body;
             if (/^got it[\s—-]/i.test(body)) return false; // burst echo
@@ -384,7 +389,16 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           {thread.isDefault ? (
             <CalendarPane />
           ) : (
-            <WhereWeArePane threadId={thread.id} title={thread.title} />
+            <WhereWeArePane
+              threadId={thread.id}
+              title={thread.title}
+              otisChatMessages={thread.messages.filter(
+                (m) => m.context === "otis_chat",
+              )}
+              currentUserId={currentUserId}
+              partnerName={partner?.name ?? null}
+              usersById={usersById}
+            />
           )}
         </div>
       </div>
@@ -644,9 +658,20 @@ const STALE_MS = 5 * 60 * 1000;
 type WhereWeArePaneProps = {
   threadId: string;
   title: string;
+  otisChatMessages: Message[];
+  currentUserId: string;
+  partnerName: string | null;
+  usersById: Map<string, User>;
 };
 
-const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
+const WhereWeArePane = ({
+  threadId,
+  title,
+  otisChatMessages,
+  currentUserId,
+  partnerName,
+  usersById,
+}: WhereWeArePaneProps) => {
   const [summary, setSummary] = useState<SpokeSummary | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -810,6 +835,64 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
         </div>
       )}
 
+      {/* Conversation with Otis — shared between both partners, lives in the
+          same thread but tagged context='otis_chat' so it doesn't bleed
+          into the main chat. */}
+      <div className="border-t border-rule pt-5 mt-2 flex flex-col gap-4">
+        <div className="smallcaps text-[10.5px] text-otis">talk to otis</div>
+
+        {otisChatMessages.length === 0 ? (
+          <div className="text-[12.5px] text-muted italic leading-relaxed">
+            Ask Otis anything about {title} — he can summarize, suggest
+            options, or push you toward a decision. Jenny sees this
+            conversation too.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {otisChatMessages.map((m) => {
+              if (m.author.kind === "agent") {
+                return (
+                  <Voice
+                    key={m.id}
+                    voice="otis"
+                    name="Otis"
+                    role="facilitator"
+                    body={m.body}
+                    timestamp={formatClock(m.createdAt)}
+                  />
+                );
+              }
+              const speaker =
+                m.author.userId === currentUserId
+                  ? "You"
+                  : usersById.get(m.author.userId)?.name?.split(" ")[0] ??
+                    "Partner";
+              return (
+                <div key={m.id} className="flex flex-col gap-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[12px] font-semibold text-ink">
+                      {speaker}
+                    </span>
+                    <span className="text-[11px] text-muted">
+                      {formatClock(m.createdAt)}
+                    </span>
+                  </div>
+                  <div className="text-[14.5px] text-ink leading-snug">
+                    {m.body}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <OtisChatComposer
+          threadId={threadId}
+          topic={title}
+          partnerFirst={partnerName?.split(" ")[0] ?? null}
+        />
+      </div>
+
       <div className="pt-2 flex items-center gap-2">
         {refreshButton}
         <button
@@ -820,6 +903,65 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
           Ping
         </button>
       </div>
+    </div>
+  );
+};
+
+// Inline composer just for the synthesis pane's Otis chat. Smaller surface
+// than the main bottom composer (which sends to the partner-to-partner chat).
+type OtisChatComposerProps = {
+  threadId: string;
+  topic: string;
+  partnerFirst: string | null;
+};
+const OtisChatComposer = ({
+  threadId,
+  topic,
+  partnerFirst,
+}: OtisChatComposerProps) => {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const onSend = async () => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    try {
+      await sendMessage(threadId, trimmed, "otis_chat");
+      setText("");
+    } finally {
+      setSending(false);
+    }
+  };
+  const placeholder = partnerFirst
+    ? `Ask Otis about ${topic} (${partnerFirst} sees this)`
+    : `Ask Otis about ${topic}`;
+  return (
+    <div className="flex items-end gap-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void onSend();
+          }
+        }}
+        enterKeyHint="send"
+        placeholder={placeholder}
+        rows={1}
+        className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink"
+      />
+      <button
+        onClick={onSend}
+        disabled={sending || !text.trim()}
+        aria-label="Send to Otis"
+        className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-otis text-paper disabled:bg-card disabled:text-muted transition-colors"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5" />
+          <polyline points="6,11 12,5 18,11" />
+        </svg>
+      </button>
     </div>
   );
 };

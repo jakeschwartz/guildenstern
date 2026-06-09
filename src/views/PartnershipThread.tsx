@@ -65,11 +65,13 @@ const summarize = (
   return { tone: "text-otis", dot: "bg-otis", label: "Otis listening" };
 };
 
-// Carousel pane indices. Center (CHAT) is the default landing; swipe one
-// way for the calendar/timeline view, the other for the live items queue.
-const PANE_CALENDAR = 0;
+// Carousel pane indices. Center (CHAT) is the default. SWIPE-RIGHT goes
+// to PANE_ITEMS (the active queue you triage), SWIPE-LEFT goes to
+// PANE_CONTEXT (the slower-moving topic context: Calendar for the main
+// partnership thread; "Where we are" synthesis for spokes).
+const PANE_ITEMS = 0;
 const PANE_CHAT = 1;
-const PANE_ITEMS = 2;
+const PANE_CONTEXT = 2;
 
 export const PartnershipThread = ({ threadId, onBack }: Props) => {
   const thread = useStore((s) =>
@@ -235,20 +237,20 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       </button>
 
       {/* Page-indicator dots. Tap any dot to jump to that pane.
-          Order matches carousel: calendar (left) · chat (center) · items (right). */}
+          Order matches carousel: items (left) · chat (center) · context (right). */}
       <div className="flex items-center justify-center gap-1.5 py-1.5 border-b border-rule shrink-0">
-        {[PANE_CALENDAR, PANE_CHAT, PANE_ITEMS].map((i) => (
+        {[PANE_ITEMS, PANE_CHAT, PANE_CONTEXT].map((i) => (
           <button
             key={i}
             onClick={() => goToPane(i)}
             aria-label={
-              i === PANE_CALENDAR
-                ? thread.isDefault
-                  ? "Calendar"
-                  : "Where we are"
+              i === PANE_ITEMS
+                ? "Items"
                 : i === PANE_CHAT
                   ? "Chat"
-                  : "Items"
+                  : thread.isDefault
+                    ? "Calendar"
+                    : "Where we are"
             }
             className={`h-1.5 rounded-full transition-all ${
               paneIndex === i ? "w-6 bg-ink" : "w-1.5 bg-rule hover:bg-muted"
@@ -258,8 +260,10 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       </div>
 
       {/* Three-pane horizontal carousel. Center pane = chat (default).
-          Swipe left → items queue. Swipe right → calendar. CSS scroll-snap
-          handles the snapping; we just listen on scroll to update the dots. */}
+          Swipe RIGHT (finger right) → items queue (left pane, the active
+          triage surface). Swipe LEFT (finger left) → context (right pane:
+          Calendar in the main partnership thread, "Where we are" in spokes).
+          CSS scroll-snap handles snapping; we listen on scroll to update dots. */}
       <div
         ref={carouselRef}
         onScroll={onCarouselScroll}
@@ -270,15 +274,30 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {/* Pane 0 — Left pane. Main partnership thread: Calendar (your
-            Google events). Spoke (focused thread): "Where we are" — an
-            Otis-synthesized topic-aware summary of the discussion so far. */}
-        <div className="w-full shrink-0 snap-start overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
-          {thread.isDefault ? (
-            <CalendarPane />
-          ) : (
-            <WhereWeArePane threadId={thread.id} title={thread.title} />
-          )}
+        {/* Pane 0 — Items queue (leftmost). The active triage surface. */}
+        <div
+          className="w-full shrink-0 snap-start overflow-y-auto"
+          style={{ paddingBottom: "16px" }}
+        >
+          <div className="px-5 pt-5">
+            <div className="smallcaps text-[11px] text-muted mb-3">
+              What Otis is tracking
+            </div>
+            {thread.opsCards.length === 0 ? (
+              <div className="text-[12.5px] text-muted italic">
+                Nothing here yet. When one of you sends a burst of items,
+                they land here for the other to triage.
+              </div>
+            ) : (
+              <OpsQueue
+                cards={thread.opsCards}
+                currentUserId={currentUserId}
+                partnerId={partnerId}
+                usersById={usersById}
+                threadId={thread.id}
+              />
+            )}
+          </div>
         </div>
 
         {/* Pane 1 — Chat. The original message stream, untouched. */}
@@ -354,36 +373,18 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           })}
         </div>
 
-        {/* Pane 2 — Items queue. Same OpsQueue UI as the bottom sheet, but
-            living on a dedicated pane so swipe-from-chat reveals it as a
-            real surface. The bottom sheet stays as a redundant affordance
-            for now; can retire it later if it feels unneeded. */}
+        {/* Pane 2 — Context (rightmost). Calendar (your Google events) in
+            the main partnership thread; Otis's topic-aware "Where we are"
+            synthesis in a spoke. */}
         <div
           className="w-full shrink-0 snap-start overflow-y-auto"
-          style={{
-            paddingBottom:
-              "16px",
-          }}
+          style={{ scrollbarGutter: "stable" }}
         >
-          <div className="px-5 pt-5">
-            <div className="smallcaps text-[11px] text-muted mb-3">
-              What Otis is tracking
-            </div>
-            {thread.opsCards.length === 0 ? (
-              <div className="text-[12.5px] text-muted italic">
-                Nothing here yet. When one of you sends a burst of items,
-                they land here for the other to triage.
-              </div>
-            ) : (
-              <OpsQueue
-                cards={thread.opsCards}
-                currentUserId={currentUserId}
-                partnerId={partnerId}
-                usersById={usersById}
-                threadId={thread.id}
-              />
-            )}
-          </div>
+          {thread.isDefault ? (
+            <CalendarPane />
+          ) : (
+            <WhereWeArePane threadId={thread.id} title={thread.title} />
+          )}
         </div>
       </div>
 

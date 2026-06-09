@@ -86,13 +86,16 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (!member) return new Response("not a member", { status: 403 });
 
-  // Pull recent messages + ops cards for context.
-  const { data: messages } = await supabase
+  // Pull recent messages + ops cards. Capped at the last 30 to keep the
+  // Claude call fast — edge functions have a tight timeout, and "Load
+  // failed" on the client is what you get when this exceeds it.
+  const { data: messagesRaw } = await supabase
     .from("messages")
     .select("author_kind, author_user_id, body, created_at")
     .eq("thread_id", thread_id)
-    .order("created_at", { ascending: true })
-    .limit(60);
+    .order("created_at", { ascending: false })
+    .limit(30);
+  const messages = (messagesRaw ?? []).reverse();
 
   const { data: cards } = await supabase
     .from("ops_cards")
@@ -118,13 +121,16 @@ Deno.serve(async (req) => {
     );
   }
 
-  const conversation = (messages ?? [])
+  const conversation = messages
     .map((m) => {
       const who =
         m.author_kind === "agent"
           ? "Otis"
           : profilesById.get(m.author_user_id ?? "") ?? "Partner";
-      return `${who}: ${m.body}`;
+      // Truncate any single message to ~400 chars so a long burst doesn't
+      // blow up the prompt.
+      const body = m.body.length > 400 ? m.body.slice(0, 400) + "…" : m.body;
+      return `${who}: ${body}`;
     })
     .join("\n");
 
@@ -137,16 +143,24 @@ Deno.serve(async (req) => {
     )
     .join("\n");
 
-  const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
+  // Abort the Claude fetch ourselves at 45s so we return a clear error
+  // instead of the edge function timing out and the client getting a
+  // generic "Load failed" with no signal.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45_000);
+  let claudeRes: Response;
+  try {
+    claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 700,
       system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
       tools: [
         {
@@ -227,11 +241,24 @@ Synthesize.`,
       ],
     }),
   });
+  } catch (e) {
+    clearTimeout(timeoutId);
+    const isAbort =
+      e instanceof Error && (e.name === "AbortError" || /abort/i.test(e.message));
+    console.error("[synthesize-spoke] claude fetch failed", e);
+    return new Response(
+      isAbort
+        ? "Claude took too long (>45s)"
+        : `Claude fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+      { status: 504 },
+    );
+  }
+  clearTimeout(timeoutId);
 
   if (!claudeRes.ok) {
     const t = await claudeRes.text();
     console.error("Claude error", claudeRes.status, t);
-    return new Response(`Claude error: ${claudeRes.status}`, { status: 502 });
+    return new Response(`Claude error: ${claudeRes.status} ${t.slice(0, 80)}`, { status: 502 });
   }
   const claudeData = await claudeRes.json();
   const toolUse = claudeData.content?.find((c: any) => c.type === "tool_use");

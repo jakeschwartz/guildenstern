@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
   const { data: cached } = await supabase
     .from("spoke_summaries")
     .select("summary, sections, updated_at")
-    .eq("thread_id", threadId)
+    .eq("thread_id", thread_id)
     .maybeSingle();
 
   // Kick off background synthesis (fire-and-forget; we don't await).

@@ -33,12 +33,12 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
     return (
       <div className="flex flex-col items-end gap-1 max-w-[84%] ml-auto">
         <div className="flex items-baseline gap-2">
-          <span className="text-[11px] text-muted">
+          <span className="text-[12px] text-muted">
             {formatClock(message.createdAt)}
           </span>
-          <span className="text-[12px] font-semibold text-ink">{name}</span>
+          <span className="text-[13px] font-semibold text-ink">{name}</span>
         </div>
-        <div className="bg-ink text-paper rounded-2xl rounded-br-md px-3.5 py-2 text-[14.5px] leading-snug">
+        <div className="bg-ink text-paper rounded-2xl rounded-br-md px-4 py-2.5 text-[17px] leading-snug">
           {message.body}
         </div>
       </div>
@@ -48,12 +48,12 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
   return (
     <div className="flex flex-col gap-1 max-w-[92%]">
       <div className="flex items-baseline gap-2">
-        <span className="text-[12px] font-semibold text-ink">{name}</span>
-        <span className="text-[11px] text-muted">
+        <span className="text-[13px] font-semibold text-ink">{name}</span>
+        <span className="text-[12px] text-muted">
           {formatClock(message.createdAt)}
         </span>
       </div>
-      <div className="bg-card text-ink rounded-2xl rounded-bl-md px-3.5 py-2 text-[14.5px] leading-snug">
+      <div className="bg-card text-ink rounded-2xl rounded-bl-md px-4 py-2.5 text-[17px] leading-snug">
         {message.body}
       </div>
     </div>

@@ -9,10 +9,10 @@ type Props = {
 
 export const InboxHeader = ({ onFilter, onNew, onMenu }: Props) => (
   <header className="px-5 pt-3 pb-3 border-b border-rule flex items-baseline justify-between">
-    <h1 className="text-[22px] font-semibold tracking-tight text-ink">
+    <h1 className="text-[28px] font-semibold tracking-tight text-ink">
       Threads
     </h1>
-    <div className="flex items-baseline gap-3 text-[12.5px] text-muted">
+    <div className="flex items-baseline gap-3 text-[14px] text-muted">
       <button onClick={onFilter} className="hover:text-ink transition-colors">
         Filter
       </button>

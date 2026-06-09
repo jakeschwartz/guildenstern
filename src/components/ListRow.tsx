@@ -59,24 +59,24 @@ export const ListRow = ({
           {pending && !pinned && (
             <span className="h-1.5 w-1.5 rounded-full bg-attention shrink-0" />
           )}
-          <span className="text-[15px] font-semibold tracking-tight text-ink truncate">
+          <span className="text-[17px] font-semibold tracking-tight text-ink truncate">
             {title}
           </span>
           {pinned && (
-            <span className="smallcaps text-[10px] text-mira ml-1 shrink-0">
+            <span className="smallcaps text-[10.5px] text-mira ml-1 shrink-0">
               pinned
             </span>
           )}
           {tag && !pinned && (
-            <span className="smallcaps text-[10px] text-otis ml-1 shrink-0">
+            <span className="smallcaps text-[10.5px] text-otis ml-1 shrink-0">
               {tag}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-muted shrink-0">
+          <span className="ml-auto text-[13px] text-muted shrink-0">
             {timestamp}
           </span>
         </div>
-        <div className="text-[12.5px] text-muted line-clamp-2 mt-0.5">
+        <div className="text-[14.5px] text-muted line-clamp-2 mt-0.5">
           {preview}
         </div>
       </div>

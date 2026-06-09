@@ -74,13 +74,20 @@ export const Composer = ({
         attachments = await Promise.all(
           pending.map((p) => uploadAttachment(threadId, p)),
         );
+        window.alert(
+          `Uploaded ${attachments.length} photo(s). Paths: ${attachments
+            .map((a) => a.path)
+            .join(", ")}`,
+        );
       } catch (e) {
         console.error("[Composer] upload failed", e);
-        if (typeof window !== "undefined" && "alert" in window) {
-          window.alert(
-            `Couldn't upload photo: ${e instanceof Error ? e.message : String(e)}`,
-          );
-        }
+        const err = e instanceof Error ? e : new Error(String(e));
+        // err may have additional Supabase fields (statusCode, error, message).
+        const extra = JSON.stringify(e, Object.getOwnPropertyNames(e)).slice(
+          0,
+          500,
+        );
+        window.alert(`Upload failed: ${err.name}: ${err.message}\n\n${extra}`);
         setUploading(false);
         return;
       }
@@ -101,8 +108,23 @@ export const Composer = ({
   };
 
   const onAddPhoto = async () => {
-    const photo = await pickPhoto("prompt");
-    if (photo) setPending((curr) => [...curr, photo]);
+    try {
+      const photo = await pickPhoto("prompt");
+      if (!photo) {
+        window.alert(
+          "Picker returned null. (Permission denied? Cancelled? Check Settings → Guildenstern → Camera/Photos.)",
+        );
+        return;
+      }
+      window.alert(
+        `Photo picked: ${photo.format} ${photo.width}×${photo.height}, ~${Math.round(photo.dataUrl.length / 1024)}KB`,
+      );
+      setPending((curr) => [...curr, photo]);
+    } catch (e) {
+      window.alert(
+        `Picker error: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`,
+      );
+    }
   };
 
   const removePending = (idx: number) => {

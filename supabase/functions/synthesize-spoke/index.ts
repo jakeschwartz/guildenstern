@@ -26,28 +26,13 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
 
 const MODEL = "claude-haiku-4-5";
 
-const SYSTEM_PROMPT = `You are Otis. The two partners opened a focused thread for a specific topic: "{TOPIC}". Your job is to read the conversation + tracked items and produce a "Where we are" synthesis — the kind of organized note someone would write to themselves to remember where the topic stands.
+const SYSTEM_PROMPT = `You are Otis. Synthesize where the two partners stand on the topic "{TOPIC}".
 
-CRITICAL: pick TOPIC-AWARE section labels. NOT "Decided / Open / Items" — those are generic. Look at what's actually being discussed and name the sections after the things that matter for this topic:
-- For a birthday party: "Invite list", "Venue", "Date", "Food", "Gifts"
-- For a trip: "Destination", "Dates", "Travelers", "Lodging", "Flights"
-- For a home reno: "Contractors", "Budget", "Timeline", "Materials"
-- For a hiring decision: "Candidates", "Interview notes", "Open questions"
+Output a 1-2 sentence prose summary, plus 2-4 sections with TOPIC-AWARE labels. NOT generic "Decided/Open" — name the sections after the actual things being discussed (e.g. for a party: "Invite list", "Venue", "Date"; for a trip: "Destination", "Dates", "Lodging").
 
-Pick the 2-5 sections that actually reflect what the partners have been discussing. Add a "To do" section IF there are tracked items related to the topic that aren't done yet.
+Each section has 1-5 items. Each item: short text + status (done = confirmed; open = in progress; maybe = considering; action = task someone owes; flagged = blocked).
 
-Each item inside a section is a short text line + a status:
-- "done" → confirmed / decided / settled
-- "open" → being worked on, leaning toward
-- "maybe" → uncertain, considering, still exploring
-- "action" → an actual task someone is on the hook for (use this for tracked items)
-- "flagged" → blocked, conflicting, or needs attention
-
-Plus a 1-3 sentence prose summary at the top — natural language, not a bullet list, that captures where the topic actually stands ("you're planning Jake's upstate birthday weekend; have the invite list started, working on the venue").
-
-Voice: warm, concise, organized. You're someone they trust to keep things straight. Lowercase-y when natural. No fluff. Don't say things like "Here's where we are" — just be where they are.
-
-Return only valid JSON matching the tool schema. Do not preface.`;
+Voice: warm, concise. No fluff. No "here's where we are" preface.`;
 
 type Section = {
   label: string;
@@ -62,6 +47,29 @@ Deno.serve(async (req) => {
   const { data: userData } = await supabase.auth.getUser(userJwt);
   if (!userData.user) return new Response("auth failed", { status: 401 });
   const userId = userData.user.id;
+
+  // Diagnostic ping mode: returns immediately without calling Claude. Lets us
+  // confirm the auth + network path works end-to-end independent of latency.
+  const url = new URL(req.url);
+  if (url.searchParams.get("debug") === "ping") {
+    return new Response(
+      JSON.stringify({
+        summary: "Ping OK — auth + network path working.",
+        sections: [
+          {
+            label: "Diagnostic",
+            items: [
+              { text: `Authenticated as ${userId.slice(0, 8)}`, status: "done" },
+              { text: "Function reached Deno runtime", status: "done" },
+              { text: "Returning without calling Claude", status: "done" },
+            ],
+          },
+        ],
+        updated_at: new Date().toISOString(),
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   const { thread_id } = await req.json().catch(() => ({}));
   if (!thread_id)
@@ -86,15 +94,15 @@ Deno.serve(async (req) => {
     .maybeSingle();
   if (!member) return new Response("not a member", { status: 403 });
 
-  // Pull recent messages + ops cards. Capped at the last 30 to keep the
-  // Claude call fast — edge functions have a tight timeout, and "Load
-  // failed" on the client is what you get when this exceeds it.
+  // Pull recent messages + ops cards. Cap at 15 messages so the Claude
+  // call returns within Supabase's edge-function timeout (~50s on free).
+  // "Load failed" client-side is what you get when this exceeds it.
   const { data: messagesRaw } = await supabase
     .from("messages")
     .select("author_kind, author_user_id, body, created_at")
     .eq("thread_id", thread_id)
     .order("created_at", { ascending: false })
-    .limit(30);
+    .limit(15);
   const messages = (messagesRaw ?? []).reverse();
 
   const { data: cards } = await supabase
@@ -127,9 +135,8 @@ Deno.serve(async (req) => {
         m.author_kind === "agent"
           ? "Otis"
           : profilesById.get(m.author_user_id ?? "") ?? "Partner";
-      // Truncate any single message to ~400 chars so a long burst doesn't
-      // blow up the prompt.
-      const body = m.body.length > 400 ? m.body.slice(0, 400) + "…" : m.body;
+      // Truncate to 200 chars per message; even shorter for agent (just header).
+      const body = m.body.length > 200 ? m.body.slice(0, 200) + "…" : m.body;
       return `${who}: ${body}`;
     })
     .join("\n");
@@ -143,11 +150,10 @@ Deno.serve(async (req) => {
     )
     .join("\n");
 
-  // Abort the Claude fetch ourselves at 45s so we return a clear error
-  // instead of the edge function timing out and the client getting a
-  // generic "Load failed" with no signal.
+  // Abort at 25s — under Supabase's 50s edge function timeout, so the
+  // client always gets a proper error message instead of "Load failed".
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45_000);
+  const timeoutId = setTimeout(() => controller.abort(), 25_000);
   let claudeRes: Response;
   try {
     claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -160,7 +166,7 @@ Deno.serve(async (req) => {
       signal: controller.signal,
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 700,
+        max_tokens: 400,
       system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
       tools: [
         {

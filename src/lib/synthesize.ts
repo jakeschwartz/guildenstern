@@ -46,12 +46,15 @@ export type RefreshResult =
 
 export async function refreshSpokeSummary(
   threadId: string,
+  opts?: { debug?: "ping" },
 ): Promise<RefreshResult> {
   try {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (!token) return { ok: false, error: "Not signed in" };
-    const res = await fetch(`${SUPABASE_FN_URL}/synthesize-spoke`, {
+    const url = new URL(`${SUPABASE_FN_URL}/synthesize-spoke`);
+    if (opts?.debug) url.searchParams.set("debug", opts.debug);
+    const res = await fetch(url.toString(), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

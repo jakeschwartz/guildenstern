@@ -692,6 +692,21 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
     setLoading(false);
   };
 
+  // Diagnostic — bypasses Claude. If this works but Refresh doesn't, the
+  // problem is Claude latency / timeout. If this ALSO fails, the problem
+  // is upstream (auth, network, function deploy).
+  const onPing = async () => {
+    setLoading(true);
+    setError(null);
+    const result = await refreshSpokeSummary(threadId, { debug: "ping" });
+    if (result.ok) {
+      setSummary(result.summary);
+    } else {
+      setError(`PING failed: ${result.error}`);
+    }
+    setLoading(false);
+  };
+
   // Always-rendered header — so the user can tell the pane is alive even
   // before Otis returns. Shows the topic title + current state + Refresh.
   const header = (
@@ -779,7 +794,16 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
         </div>
       )}
 
-      <div className="pt-2">{refreshButton}</div>
+      <div className="pt-2 flex items-center gap-2">
+        {refreshButton}
+        <button
+          onClick={onPing}
+          disabled={loading}
+          className="h-9 px-3 rounded-xl border border-rule text-[11.5px] text-muted hover:bg-card/60 transition-colors disabled:opacity-50"
+        >
+          Ping
+        </button>
+      </div>
     </div>
   );
 };

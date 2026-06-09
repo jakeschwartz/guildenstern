@@ -153,8 +153,10 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
       </div>
 
       <Composer
-        onSend={(body) => {
-          if (body.trim()) sendMessage(thread.id, body);
+        threadId={thread.id}
+        onSend={(body, attachments) => {
+          if (body.trim() || (attachments && attachments.length > 0))
+            sendMessage(thread.id, body, "main", attachments);
         }}
         placeholder="Tell Mira"
       />

@@ -409,8 +409,10 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           - Items pane: hidden — that's a pure triage surface. */}
       {paneIndex === PANE_CHAT && (
         <Composer
-          onSend={(body) => {
-            if (body.trim()) sendMessage(thread.id, body, "main");
+          threadId={thread.id}
+          onSend={(body, attachments) => {
+            if (body.trim() || (attachments && attachments.length > 0))
+              sendMessage(thread.id, body, "main", attachments);
           }}
           placeholder={
             partner ? `Message ${partner.name}` : "Message your partner…"
@@ -419,8 +421,10 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       )}
       {paneIndex === PANE_CONTEXT && !thread.isDefault && (
         <Composer
-          onSend={(body) => {
-            if (body.trim()) sendMessage(thread.id, body, "otis_chat");
+          threadId={thread.id}
+          onSend={(body, attachments) => {
+            if (body.trim() || (attachments && attachments.length > 0))
+              sendMessage(thread.id, body, "otis_chat", attachments);
           }}
           placeholder={
             partner

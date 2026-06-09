@@ -46,5 +46,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Guildenstern uses the camera so you can send photos to your partner.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Guildenstern lets you share photos from your library with your partner.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Guildenstern can save photos you receive to your library.</string>
 </dict>
 </plist>

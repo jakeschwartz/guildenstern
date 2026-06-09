@@ -5,7 +5,7 @@
 // RLS enforces the access rules on the server; these helpers don't re-check.
 
 import { supabase } from "./supabase";
-import type { OpsBucket, OpsCardStatus } from "../types";
+import type { Attachment, OpsBucket, OpsCardStatus } from "../types";
 
 // ---------- profiles ----------
 
@@ -232,6 +232,7 @@ export type MessageRow = {
   fold_summary: string | null;
   created_at: string;
   context: "main" | "otis_chat";
+  attachments: Attachment[] | null;
 };
 
 export async function getMessages(
@@ -252,6 +253,7 @@ export async function sendMessage(
   threadId: string,
   body: string,
   context: "main" | "otis_chat" = "main",
+  attachments: Attachment[] = [],
 ): Promise<MessageRow> {
   const user = (await supabase.auth.getUser()).data.user;
   if (!user) throw new Error("Not authenticated");
@@ -263,6 +265,7 @@ export async function sendMessage(
       author_user_id: user.id,
       body,
       context,
+      attachments,
     })
     .select("*")
     .single();

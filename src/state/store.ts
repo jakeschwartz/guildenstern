@@ -18,6 +18,7 @@ import * as db from "../lib/db";
 import * as google from "../lib/google";
 import { supabase } from "../lib/supabase";
 import type {
+  Attachment,
   CalendarEvent,
   Message,
   MessageAuthor,
@@ -101,6 +102,7 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
     context: row.context ?? "main",
+    attachments: row.attachments ?? undefined,
     briefing,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,
@@ -334,6 +336,7 @@ export const sendMessage = async (
   threadId: string,
   body: string,
   context: "main" | "otis_chat" = "main",
+  attachments: Attachment[] = [],
 ) => {
   // Optimistic: append locally; realtime will reconcile the canonical row.
   const optimistic: Message = {
@@ -342,13 +345,14 @@ export const sendMessage = async (
     body,
     createdAt: Date.now(),
     context,
+    attachments: attachments.length > 0 ? attachments : undefined,
   };
   const threads = state.threads.map((t) =>
     t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
   );
   setState({ threads });
   try {
-    await db.sendMessage(threadId, body, context);
+    await db.sendMessage(threadId, body, context, attachments);
   } catch (e) {
     // Loud failure: log the raw error AND alert so dev iteration without
     // Safari Web Inspector still surfaces the problem. The optimistic message

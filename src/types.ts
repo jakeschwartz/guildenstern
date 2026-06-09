@@ -49,12 +49,24 @@ export type Conflict = {
 // behind the synthesis pane in a spoke. Same thread, different surfaces.
 export type MessageContext = "main" | "otis_chat";
 
+// A photo attached to a message. v1 only supports images. Path is the
+// Storage object path inside the message-attachments bucket; the client
+// resolves a public URL from it. Width/height let us reserve aspect-correct
+// space in the bubble before the image actually loads.
+export type Attachment = {
+  kind: "image";
+  path: string;
+  width: number;
+  height: number;
+};
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
   body: string;
   createdAt: number;
   context?: MessageContext;
+  attachments?: Attachment[];
   briefing?: {
     title: string;
     items: BriefingItem[];

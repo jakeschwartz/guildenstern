@@ -396,21 +396,39 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
                 (m) => m.context === "otis_chat",
               )}
               currentUserId={currentUserId}
-              partnerName={partner?.name ?? null}
               usersById={usersById}
             />
           )}
         </div>
       </div>
 
-      <Composer
-        onSend={(body) => {
-          if (body.trim()) sendMessage(thread.id, body);
-        }}
-        placeholder={
-          partner ? `Message ${partner.name}` : "Message your partner…"
-        }
-      />
+      {/* One composer, fixed-bottom. Its behavior changes based on which
+          pane the user is currently on:
+          - Chat pane: messages go to the partner-to-partner chat.
+          - Synthesis pane (in a spoke): messages go to Otis (shared).
+          - Items pane: hidden — that's a pure triage surface. */}
+      {paneIndex === PANE_CHAT && (
+        <Composer
+          onSend={(body) => {
+            if (body.trim()) sendMessage(thread.id, body, "main");
+          }}
+          placeholder={
+            partner ? `Message ${partner.name}` : "Message your partner…"
+          }
+        />
+      )}
+      {paneIndex === PANE_CONTEXT && !thread.isDefault && (
+        <Composer
+          onSend={(body) => {
+            if (body.trim()) sendMessage(thread.id, body, "otis_chat");
+          }}
+          placeholder={
+            partner
+              ? `Ask Otis (${partner.name.split(" ")[0]} sees)`
+              : "Ask Otis"
+          }
+        />
+      )}
 
       <Sheet
         open={sheetOpen}
@@ -660,7 +678,6 @@ type WhereWeArePaneProps = {
   title: string;
   otisChatMessages: Message[];
   currentUserId: string;
-  partnerName: string | null;
   usersById: Map<string, User>;
 };
 
@@ -669,7 +686,6 @@ const WhereWeArePane = ({
   title,
   otisChatMessages,
   currentUserId,
-  partnerName,
   usersById,
 }: WhereWeArePaneProps) => {
   const [summary, setSummary] = useState<SpokeSummary | null>(null);
@@ -886,11 +902,6 @@ const WhereWeArePane = ({
           </div>
         )}
 
-        <OtisChatComposer
-          threadId={threadId}
-          topic={title}
-          partnerFirst={partnerName?.split(" ")[0] ?? null}
-        />
       </div>
 
       <div className="pt-2 flex items-center gap-2">
@@ -907,64 +918,9 @@ const WhereWeArePane = ({
   );
 };
 
-// Inline composer just for the synthesis pane's Otis chat. Smaller surface
-// than the main bottom composer (which sends to the partner-to-partner chat).
-type OtisChatComposerProps = {
-  threadId: string;
-  topic: string;
-  partnerFirst: string | null;
-};
-const OtisChatComposer = ({
-  threadId,
-  topic,
-  partnerFirst,
-}: OtisChatComposerProps) => {
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const onSend = async () => {
-    const trimmed = text.trim();
-    if (!trimmed || sending) return;
-    setSending(true);
-    try {
-      await sendMessage(threadId, trimmed, "otis_chat");
-      setText("");
-    } finally {
-      setSending(false);
-    }
-  };
-  const placeholder = partnerFirst
-    ? `Ask Otis about ${topic} (${partnerFirst} sees this)`
-    : `Ask Otis about ${topic}`;
-  return (
-    <div className="flex items-end gap-2">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            void onSend();
-          }
-        }}
-        enterKeyHint="send"
-        placeholder={placeholder}
-        rows={1}
-        className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink"
-      />
-      <button
-        onClick={onSend}
-        disabled={sending || !text.trim()}
-        aria-label="Send to Otis"
-        className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-otis text-paper disabled:bg-card disabled:text-muted transition-colors"
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="12" y1="19" x2="12" y2="5" />
-          <polyline points="6,11 12,5 18,11" />
-        </svg>
-      </button>
-    </div>
-  );
-};
+// (OtisChatComposer removed — replaced by the main bottom Composer which
+// switches its placeholder and send-handler based on which pane is active.
+// Avoids two stacked composers + keyboard handling duplication.)
 
 // ============================================================================
 // OpsCardRow — the canonical card render. Used by both OpsQueue (Items pane +

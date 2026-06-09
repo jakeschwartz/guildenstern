@@ -42,13 +42,23 @@ const jsonHeaders = {
 
 const MODEL = "claude-haiku-4-5";
 
-const SYSTEM_PROMPT = `You are Otis. Synthesize where the two partners stand on the topic "{TOPIC}".
+const SYSTEM_PROMPT = `You are Otis. Synthesize where two partners stand on "{TOPIC}".
 
-Output a 1-2 sentence prose summary, plus 2-4 sections with TOPIC-AWARE labels. NOT generic "Decided/Open" — name the sections after the actual things being discussed (e.g. for a party: "Invite list", "Venue", "Date"; for a trip: "Destination", "Dates", "Lodging").
+Respond with VALID JSON only. No markdown code blocks. No commentary. Start with { and end with }. Schema:
 
-Each section has 1-5 items. Each item: short text + status (done = confirmed; open = in progress; maybe = considering; action = task someone owes; flagged = blocked).
+{
+  "summary": "1-2 sentences. Warm, concise. No 'here's where we are' preface.",
+  "sections": [
+    {
+      "label": "TOPIC-AWARE title — NOT 'Decided/Open'. For a party: 'Invite list', 'Venue', 'Date'. For a trip: 'Destination', 'Dates', 'Lodging'. For a reno: 'Contractors', 'Budget'.",
+      "items": [
+        { "text": "short concrete item", "status": "one of: done | open | maybe | action | flagged" }
+      ]
+    }
+  ]
+}
 
-Voice: warm, concise. No fluff. No "here's where we are" preface.`;
+2-4 sections. 1-5 items per section. Status: done=confirmed; open=in progress; maybe=considering; action=task someone owes; flagged=blocked.`;
 
 type Section = {
   label: string;
@@ -195,87 +205,26 @@ Deno.serve(async (req) => {
       signal: controller.signal,
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 250,
-      system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
-      tools: [
-        {
-          name: "synthesize",
-          description: "Produce a Where-we-are synthesis for this spoke.",
-          input_schema: {
-            type: "object",
-            properties: {
-              summary: {
-                type: "string",
-                description:
-                  "1-3 sentence prose summary capturing where things stand. Natural language. No 'here's where we are' preface.",
-              },
-              sections: {
-                type: "array",
-                minItems: 1,
-                maxItems: 6,
-                description:
-                  "Topic-aware sections. Labels must reflect what the partners are actually discussing — not generic Decided/Open/Items.",
-                items: {
-                  type: "object",
-                  properties: {
-                    label: {
-                      type: "string",
-                      description:
-                        "Section title in title case. Topic-specific. Example: 'Invite list', 'Venue', 'Date', 'Lodging', 'Candidates'.",
-                    },
-                    items: {
-                      type: "array",
-                      minItems: 1,
-                      items: {
-                        type: "object",
-                        properties: {
-                          text: {
-                            type: "string",
-                            description:
-                              "The item — short, concrete. E.g. 'Kenny and Unha', 'Upstate Airbnb', 'A weekend in June'.",
-                          },
-                          status: {
-                            type: "string",
-                            enum: [
-                              "done",
-                              "open",
-                              "maybe",
-                              "action",
-                              "flagged",
-                            ],
-                            description:
-                              "done=confirmed; open=in progress; maybe=still considering; action=tracked task; flagged=blocked/needs attention",
-                          },
-                        },
-                        required: ["text", "status"],
-                      },
-                    },
-                  },
-                  required: ["label", "items"],
-                },
-              },
-            },
-            required: ["summary", "sections"],
-          },
-        },
-      ],
-      tool_choice: { type: "tool", name: "synthesize" },
-      messages: [
-        {
-          role: "user",
-          content: `Topic: "${thread.title}"
+        max_tokens: 300,
+        system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
+        messages: [
+          {
+            role: "user",
+            content: `Topic: "${thread.title}"
 
-Conversation so far (oldest → newest):
+Conversation (oldest → newest):
 ${conversation || "(no messages yet)"}
 
 Tracked items:
-${itemList || "(none yet)"}
-
-Synthesize.`,
-        },
-      ],
-    }),
-  });
+${itemList || "(none yet)"}`,
+          },
+          // Prefill the assistant with "{" — forces Claude to immediately
+          // start a JSON object, much faster than letting it think about
+          // tool calling. Standard latency trick.
+          { role: "assistant", content: "{" },
+        ],
+      }),
+    });
   } catch (e) {
     clearTimeout(timeoutId);
     const isAbort =
@@ -299,12 +248,35 @@ Synthesize.`,
     });
   }
   const claudeData = await claudeRes.json();
-  const toolUse = claudeData.content?.find((c: any) => c.type === "tool_use");
-  if (!toolUse) {
-    console.error("No tool_use in Claude response", claudeData);
+  const textBlock = claudeData.content?.find((c: any) => c.type === "text");
+  if (!textBlock) {
+    console.error("No text content in Claude response", claudeData);
     return new Response("no synthesis", { status: 502, headers: corsHeaders });
   }
-  const result = toolUse.input as { summary: string; sections: Section[] };
+  // We prefilled the assistant with "{" so the actual content starts as if
+  // it's INSIDE a JSON object. Re-add the opening brace before parsing.
+  // Also tolerate trailing junk after the closing brace by slicing to the
+  // last "}".
+  const raw = "{" + textBlock.text;
+  const lastBrace = raw.lastIndexOf("}");
+  const jsonStr = lastBrace > 0 ? raw.slice(0, lastBrace + 1) : raw;
+  let result: { summary: string; sections: Section[] };
+  try {
+    result = JSON.parse(jsonStr) as { summary: string; sections: Section[] };
+  } catch (e) {
+    console.error("[synthesize-spoke] JSON parse failed", e, jsonStr);
+    return new Response(
+      `JSON parse failed: ${jsonStr.slice(0, 100)}`,
+      { status: 502, headers: corsHeaders },
+    );
+  }
+  if (!result?.summary || !Array.isArray(result.sections)) {
+    console.error("[synthesize-spoke] missing fields", result);
+    return new Response(`missing fields in response`, {
+      status: 502,
+      headers: corsHeaders,
+    });
+  }
 
   // Upsert cached summary.
   const { error: upErr } = await supabase

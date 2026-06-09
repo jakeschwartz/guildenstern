@@ -16,6 +16,7 @@ import { formatClock } from "../lib/time";
 import {
   getCachedSpokeSummary,
   refreshSpokeSummary,
+  subscribeToSpokeSummary,
 } from "../lib/synthesize";
 import type {
   Conflict,
@@ -647,11 +648,14 @@ type WhereWeArePaneProps = {
 
 const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
   const [summary, setSummary] = useState<SpokeSummary | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // On mount: read the cached row first; if missing or stale, kick off a
-  // fresh synthesis. Errors are surfaced verbatim so we can see what failed.
+  // On mount: read the cached row instantly. If stale, ask the server to
+  // refresh in the background. Subscribe to realtime UPDATE on the row so
+  // the new synthesis lands without polling. The function never blocks on
+  // Claude — it returns immediately and the actual work happens via
+  // EdgeRuntime.waitUntil.
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -663,48 +667,60 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
       setSummary(cached);
       const isStale = !cached || Date.now() - cached.updatedAt > STALE_MS;
       if (isStale) {
-        setLoading(true);
+        setSyncing(true);
         const result = await refreshSpokeSummary(threadId);
         if (!alive) return;
         if (result.ok) {
-          setSummary(result.summary);
-          setError(null);
+          // The function returns the cached version + a `syncing` flag.
+          // We'll get the fresh version via realtime when Claude finishes.
+          if (result.summary) setSummary(result.summary);
+          if (!result.syncing) setSyncing(false);
         } else {
           setError(result.error);
+          setSyncing(false);
         }
-        setLoading(false);
       }
     })();
+    const unsub = subscribeToSpokeSummary(threadId, (fresh) => {
+      if (!alive) return;
+      setSummary(fresh);
+      setSyncing(false);
+      setError(null);
+    });
     return () => {
       alive = false;
+      unsub();
     };
   }, [threadId]);
 
   const onRefresh = async () => {
-    setLoading(true);
+    setSyncing(true);
     setError(null);
     const result = await refreshSpokeSummary(threadId);
     if (result.ok) {
-      setSummary(result.summary);
+      if (result.summary) setSummary(result.summary);
+      // Stay in "syncing" state; realtime will flip it off when fresh
+      // synthesis lands. If for some reason it never does, auto-clear in 30s.
+      setTimeout(() => setSyncing(false), 30_000);
     } else {
       setError(result.error);
+      setSyncing(false);
     }
-    setLoading(false);
   };
 
   // Diagnostic — bypasses Claude. If this works but Refresh doesn't, the
   // problem is Claude latency / timeout. If this ALSO fails, the problem
   // is upstream (auth, network, function deploy).
   const onPing = async () => {
-    setLoading(true);
+    setSyncing(true);
     setError(null);
     const result = await refreshSpokeSummary(threadId, { debug: "ping" });
     if (result.ok) {
-      setSummary(result.summary);
+      if (result.summary) setSummary(result.summary);
     } else {
       setError(`PING failed: ${result.error}`);
     }
-    setLoading(false);
+    setSyncing(false);
   };
 
   // Always-rendered header — so the user can tell the pane is alive even
@@ -720,7 +736,7 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
         </span>
       </div>
       <span className="text-[10.5px] text-muted shrink-0">
-        {loading
+        {syncing
           ? "syncing…"
           : summary
             ? `updated ${fmtAgo(summary.updatedAt)}`
@@ -732,10 +748,10 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
   const refreshButton = (
     <button
       onClick={onRefresh}
-      disabled={loading}
+      disabled={syncing}
       className="h-9 px-4 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors disabled:opacity-50"
     >
-      {loading ? "Working…" : summary ? "Refresh" : "Have Otis read it now"}
+      {syncing ? "Working…" : summary ? "Refresh" : "Have Otis read it now"}
     </button>
   );
 
@@ -781,14 +797,14 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
         </>
       )}
 
-      {!summary && !loading && !error && (
+      {!summary && !syncing && !error && (
         <div className="text-[12.5px] text-muted leading-relaxed">
           Send a couple of messages back and forth in this thread, then tap
           below to have Otis synthesize where things stand.
         </div>
       )}
 
-      {!summary && loading && (
+      {!summary && syncing && (
         <div className="text-[12.5px] text-muted leading-relaxed">
           Otis is reading the conversation…
         </div>
@@ -798,7 +814,7 @@ const WhereWeArePane = ({ threadId, title }: WhereWeArePaneProps) => {
         {refreshButton}
         <button
           onClick={onPing}
-          disabled={loading}
+          disabled={syncing}
           className="h-9 px-3 rounded-xl border border-rule text-[11.5px] text-muted hover:bg-card/60 transition-colors disabled:opacity-50"
         >
           Ping

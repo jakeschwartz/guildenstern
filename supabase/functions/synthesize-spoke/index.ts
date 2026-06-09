@@ -131,14 +131,43 @@ Deno.serve(async (req) => {
   if (!member)
     return new Response("not a member", { status: 403, headers: corsHeaders });
 
-  // Pull recent messages + ops cards. Aggressively capped — Claude haiku
-  // with this tool schema gets slow fast as context grows, and "Load
-  // failed" client-side is what we see when total wall-clock exceeds
-  // Supabase's edge-function limit.
+  // Return the cached row immediately and run the Claude synthesis in the
+  // BACKGROUND via EdgeRuntime.waitUntil. The client subscribes to realtime
+  // updates on spoke_summaries; the new synthesis arrives there when ready.
+  // This decouples the user-visible request from Claude's latency entirely.
+  const { data: cached } = await supabase
+    .from("spoke_summaries")
+    .select("summary, sections, updated_at")
+    .eq("thread_id", threadId)
+    .maybeSingle();
+
+  // Kick off background synthesis (fire-and-forget; we don't await).
+  // @ts-ignore: EdgeRuntime is provided by Supabase's Deno deploy env.
+  EdgeRuntime.waitUntil(
+    runBackgroundSynth(thread_id, thread.title || "this topic").catch((e) => {
+      console.error("[synthesize-spoke] background failed", e);
+    }),
+  );
+
+  return new Response(
+    JSON.stringify({
+      summary: cached?.summary ?? null,
+      sections: cached?.sections ?? [],
+      updated_at: cached?.updated_at ?? null,
+      syncing: true,
+    }),
+    { status: 200, headers: jsonHeaders },
+  );
+});
+
+// ---------------------------------------------------------------
+// Background synthesis — runs after the client response is sent.
+// ---------------------------------------------------------------
+async function runBackgroundSynth(threadId: string, topic: string) {
   const { data: messagesRaw } = await supabase
     .from("messages")
     .select("author_kind, author_user_id, body, created_at")
-    .eq("thread_id", thread_id)
+    .eq("thread_id", threadId)
     .order("created_at", { ascending: false })
     .limit(10);
   const messages = (messagesRaw ?? []).reverse();
@@ -146,7 +175,7 @@ Deno.serve(async (req) => {
   const { data: cards } = await supabase
     .from("ops_cards")
     .select("title, subtitle, status, owner_id, when_label")
-    .eq("thread_id", thread_id);
+    .eq("thread_id", threadId);
 
   // Resolve user_id → display name for nicer context to Claude.
   const userIds = Array.from(
@@ -206,11 +235,11 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 300,
-        system: SYSTEM_PROMPT.replace("{TOPIC}", thread.title || "this topic"),
+        system: SYSTEM_PROMPT.replace("{TOPIC}", topic),
         messages: [
           {
             role: "user",
-            content: `Topic: "${thread.title}"
+            content: `Topic: "${topic}"
 
 Conversation (oldest → newest):
 ${conversation || "(no messages yet)"}
@@ -218,45 +247,28 @@ ${conversation || "(no messages yet)"}
 Tracked items:
 ${itemList || "(none yet)"}`,
           },
-          // Prefill the assistant with "{" — forces Claude to immediately
-          // start a JSON object, much faster than letting it think about
-          // tool calling. Standard latency trick.
           { role: "assistant", content: "{" },
         ],
       }),
     });
   } catch (e) {
     clearTimeout(timeoutId);
-    const isAbort =
-      e instanceof Error && (e.name === "AbortError" || /abort/i.test(e.message));
-    console.error("[synthesize-spoke] claude fetch failed", e);
-    return new Response(
-      isAbort
-        ? "Claude took too long (>15s)"
-        : `Claude fetch failed: ${e instanceof Error ? e.message : String(e)}`,
-      { status: 504, headers: corsHeaders },
-    );
+    console.error("[synthesize-spoke bg] claude fetch failed", e);
+    return;
   }
   clearTimeout(timeoutId);
 
   if (!claudeRes.ok) {
     const t = await claudeRes.text();
-    console.error("Claude error", claudeRes.status, t);
-    return new Response(`Claude error: ${claudeRes.status} ${t.slice(0, 80)}`, {
-      status: 502,
-      headers: corsHeaders,
-    });
+    console.error("[synthesize-spoke bg] Claude error", claudeRes.status, t);
+    return;
   }
   const claudeData = await claudeRes.json();
   const textBlock = claudeData.content?.find((c: any) => c.type === "text");
   if (!textBlock) {
-    console.error("No text content in Claude response", claudeData);
-    return new Response("no synthesis", { status: 502, headers: corsHeaders });
+    console.error("[synthesize-spoke bg] no text", claudeData);
+    return;
   }
-  // We prefilled the assistant with "{" so the actual content starts as if
-  // it's INSIDE a JSON object. Re-add the opening brace before parsing.
-  // Also tolerate trailing junk after the closing brace by slicing to the
-  // last "}".
   const raw = "{" + textBlock.text;
   const lastBrace = raw.lastIndexOf("}");
   const jsonStr = lastBrace > 0 ? raw.slice(0, lastBrace + 1) : raw;
@@ -264,26 +276,21 @@ ${itemList || "(none yet)"}`,
   try {
     result = JSON.parse(jsonStr) as { summary: string; sections: Section[] };
   } catch (e) {
-    console.error("[synthesize-spoke] JSON parse failed", e, jsonStr);
-    return new Response(
-      `JSON parse failed: ${jsonStr.slice(0, 100)}`,
-      { status: 502, headers: corsHeaders },
-    );
+    console.error("[synthesize-spoke bg] JSON parse failed", e, jsonStr);
+    return;
   }
   if (!result?.summary || !Array.isArray(result.sections)) {
-    console.error("[synthesize-spoke] missing fields", result);
-    return new Response(`missing fields in response`, {
-      status: 502,
-      headers: corsHeaders,
-    });
+    console.error("[synthesize-spoke bg] missing fields", result);
+    return;
   }
 
-  // Upsert cached summary.
+  // Upsert cached summary — triggers realtime UPDATE that the client's
+  // WhereWeArePane subscription picks up.
   const { error: upErr } = await supabase
     .from("spoke_summaries")
     .upsert(
       {
-        thread_id,
+        thread_id: threadId,
         summary: result.summary,
         sections: result.sections,
         updated_at: new Date().toISOString(),
@@ -291,16 +298,6 @@ ${itemList || "(none yet)"}`,
       { onConflict: "thread_id" },
     );
   if (upErr) {
-    console.error("[synthesize-spoke] upsert failed", upErr);
-    return new Response("db error", { status: 500, headers: corsHeaders });
+    console.error("[synthesize-spoke bg] upsert failed", upErr);
   }
-
-  return new Response(
-    JSON.stringify({
-      summary: result.summary,
-      sections: result.sections,
-      updated_at: new Date().toISOString(),
-    }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
-});
+}

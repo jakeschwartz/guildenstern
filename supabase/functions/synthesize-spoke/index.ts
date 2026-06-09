@@ -24,6 +24,22 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false },
 });
 
+// CORS: client is the iOS WKWebView (origin capacitor://localhost on
+// native; localhost on web preview). POST + JSON + Bearer triggers
+// preflight; without these headers the WebView blocks the response with
+// the generic "Load failed" error. (Same reason fetch-google-events works
+// without these — it's a GET, which is a simple request, no preflight.)
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const jsonHeaders = {
+  ...corsHeaders,
+  "Content-Type": "application/json",
+};
+
 const MODEL = "claude-haiku-4-5";
 
 const SYSTEM_PROMPT = `You are Otis. Synthesize where the two partners stand on the topic "{TOPIC}".
@@ -40,12 +56,22 @@ type Section = {
 };
 
 Deno.serve(async (req) => {
+  // CORS preflight.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders });
+  }
+
   // Verify the user is authenticated + a member of the spoke.
   const auth = req.headers.get("Authorization") ?? "";
   const userJwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!userJwt) return new Response("missing Authorization", { status: 401 });
+  if (!userJwt)
+    return new Response("missing Authorization", {
+      status: 401,
+      headers: corsHeaders,
+    });
   const { data: userData } = await supabase.auth.getUser(userJwt);
-  if (!userData.user) return new Response("auth failed", { status: 401 });
+  if (!userData.user)
+    return new Response("auth failed", { status: 401, headers: corsHeaders });
   const userId = userData.user.id;
 
   // Diagnostic ping mode: returns immediately without calling Claude. Lets us
@@ -67,13 +93,13 @@ Deno.serve(async (req) => {
         ],
         updated_at: new Date().toISOString(),
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      { status: 200, headers: jsonHeaders },
     );
   }
 
   const { thread_id } = await req.json().catch(() => ({}));
   if (!thread_id)
-    return new Response("missing thread_id", { status: 400 });
+    return new Response("missing thread_id", { status: 400, headers: corsHeaders });
 
   // Load thread (must be a non-default partnership thread = a spoke).
   const { data: thread } = await supabase
@@ -82,7 +108,7 @@ Deno.serve(async (req) => {
     .eq("id", thread_id)
     .single();
   if (!thread || thread.kind !== "partnership" || thread.is_default) {
-    return new Response("not a spoke", { status: 400 });
+    return new Response("not a spoke", { status: 400, headers: corsHeaders });
   }
 
   // Membership check.
@@ -92,7 +118,8 @@ Deno.serve(async (req) => {
     .eq("partnership_id", thread.partnership_id)
     .eq("user_id", userId)
     .maybeSingle();
-  if (!member) return new Response("not a member", { status: 403 });
+  if (!member)
+    return new Response("not a member", { status: 403, headers: corsHeaders });
 
   // Pull recent messages + ops cards. Cap at 15 messages so the Claude
   // call returns within Supabase's edge-function timeout (~50s on free).
@@ -254,9 +281,9 @@ Synthesize.`,
     console.error("[synthesize-spoke] claude fetch failed", e);
     return new Response(
       isAbort
-        ? "Claude took too long (>45s)"
+        ? "Claude took too long (>25s)"
         : `Claude fetch failed: ${e instanceof Error ? e.message : String(e)}`,
-      { status: 504 },
+      { status: 504, headers: corsHeaders },
     );
   }
   clearTimeout(timeoutId);
@@ -264,13 +291,16 @@ Synthesize.`,
   if (!claudeRes.ok) {
     const t = await claudeRes.text();
     console.error("Claude error", claudeRes.status, t);
-    return new Response(`Claude error: ${claudeRes.status} ${t.slice(0, 80)}`, { status: 502 });
+    return new Response(`Claude error: ${claudeRes.status} ${t.slice(0, 80)}`, {
+      status: 502,
+      headers: corsHeaders,
+    });
   }
   const claudeData = await claudeRes.json();
   const toolUse = claudeData.content?.find((c: any) => c.type === "tool_use");
   if (!toolUse) {
     console.error("No tool_use in Claude response", claudeData);
-    return new Response("no synthesis", { status: 502 });
+    return new Response("no synthesis", { status: 502, headers: corsHeaders });
   }
   const result = toolUse.input as { summary: string; sections: Section[] };
 
@@ -288,7 +318,7 @@ Synthesize.`,
     );
   if (upErr) {
     console.error("[synthesize-spoke] upsert failed", upErr);
-    return new Response("db error", { status: 500 });
+    return new Response("db error", { status: 500, headers: corsHeaders });
   }
 
   return new Response(

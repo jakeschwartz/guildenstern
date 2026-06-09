@@ -65,7 +65,22 @@ type Section = {
   items: Array<{ text: string; status: string }>;
 };
 
+// Top-level handler wraps everything in try/catch so ANY thrown error
+// returns a meaningful HTTP response instead of crashing the function and
+// leaving the WebView to display generic "Load failed".
 Deno.serve(async (req) => {
+  try {
+    return await handler(req);
+  } catch (e) {
+    console.error("[synthesize-spoke] uncaught", e);
+    return new Response(
+      `Function crashed: ${e instanceof Error ? e.message : String(e)}`,
+      { status: 500, headers: corsHeaders },
+    );
+  }
+});
+
+async function handler(req: Request): Promise<Response> {
   // CORS preflight.
   if (req.method === "OPTIONS") {
     return new Response("ok", { status: 200, headers: corsHeaders });
@@ -141,13 +156,25 @@ Deno.serve(async (req) => {
     .eq("thread_id", thread_id)
     .maybeSingle();
 
-  // Kick off background synthesis (fire-and-forget; we don't await).
-  // @ts-ignore: EdgeRuntime is provided by Supabase's Deno deploy env.
-  EdgeRuntime.waitUntil(
-    runBackgroundSynth(thread_id, thread.title || "this topic").catch((e) => {
-      console.error("[synthesize-spoke] background failed", e);
-    }),
-  );
+  // Kick off background synthesis. Defensive: if EdgeRuntime.waitUntil
+  // isn't available in this runtime version, the background promise still
+  // starts — the function may shut down before it finishes (best-effort
+  // synth) but the response always goes out.
+  const bgPromise = runBackgroundSynth(
+    thread_id,
+    thread.title || "this topic",
+  ).catch((e) => {
+    console.error("[synthesize-spoke] background failed", e);
+  });
+  try {
+    // @ts-ignore: EdgeRuntime is provided by Supabase's Deno deploy env.
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(bgPromise);
+    }
+  } catch (e) {
+    console.error("[synthesize-spoke] waitUntil setup failed", e);
+  }
 
   return new Response(
     JSON.stringify({
@@ -158,7 +185,7 @@ Deno.serve(async (req) => {
     }),
     { status: 200, headers: jsonHeaders },
   );
-});
+}
 
 // ---------------------------------------------------------------
 // Background synthesis — runs after the client response is sent.

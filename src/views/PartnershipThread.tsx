@@ -357,23 +357,31 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
                   author={author}
                   isSelf={isSelf}
                 />
-                {/* iMessage-tapback-style indicator: when this message
-                    produced items, show a quiet pill below it. Tap → swipes
-                    to the items pane where state lives. */}
-                {itemCount > 0 && (
+                {/* Agent read receipt. Otis is invisible in chat; his only
+                    footprint is this indicator — a small green dot once he's
+                    processed the message, with a count when items were
+                    tracked (tap → items pane). Like iMessage "Delivered",
+                    but for the agent layer. */}
+                {itemCount > 0 ? (
                   <button
                     onClick={() => goToPane(PANE_ITEMS)}
+                    aria-label={`Otis tracked ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
                     className={`${
                       isSelf ? "self-end" : "self-start"
-                    } text-[11px] text-otis flex items-center gap-1 px-2 py-0.5 rounded-full bg-otis-tint/40 hover:bg-otis-tint/60 transition-colors`}
+                    } flex items-center gap-1 text-[10.5px] text-otis`}
                   >
-                    <span aria-hidden>✓</span>
-                    <span>
-                      Otis tracked {itemCount}
-                      {itemCount === 1 ? " item" : " items"}
-                    </span>
+                    <span
+                      aria-hidden
+                      className="h-1.5 w-1.5 rounded-full bg-otis"
+                    />
+                    <span>{itemCount}</span>
                   </button>
-                )}
+                ) : isSelf && m.agentProcessedAt ? (
+                  <span
+                    aria-label="Otis saw this"
+                    className="self-end h-1.5 w-1.5 rounded-full bg-otis/60"
+                  />
+                ) : null}
               </div>
             );
           })}

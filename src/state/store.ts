@@ -103,6 +103,9 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     createdAt: new Date(row.created_at).getTime(),
     context: row.context ?? "main",
     attachments: row.attachments ?? undefined,
+    agentProcessedAt: row.agent_processed_at
+      ? new Date(row.agent_processed_at).getTime()
+      : undefined,
     briefing,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,

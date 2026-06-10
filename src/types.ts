@@ -67,6 +67,10 @@ export type Message = {
   createdAt: number;
   context?: MessageContext;
   attachments?: Attachment[];
+  // "Agent read receipt": when Otis finished processing this message
+  // (partnership main chat only). Renders as a small green dot on the
+  // sender's message — the fourth delivery state after sent/delivered/read.
+  agentProcessedAt?: number;
   briefing?: {
     title: string;
     items: BriefingItem[];

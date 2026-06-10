@@ -233,6 +233,7 @@ export type MessageRow = {
   created_at: string;
   context: "main" | "otis_chat";
   attachments: Attachment[] | null;
+  agent_processed_at: string | null;
 };
 
 export async function getMessages(

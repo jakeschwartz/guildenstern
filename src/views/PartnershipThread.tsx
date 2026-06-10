@@ -5,6 +5,7 @@ import {
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
+  toggleReaction,
   useStore,
 } from "../state/store";
 import { Voice } from "../components/Voice";
@@ -66,6 +67,50 @@ const summarize = (
     return { tone: "text-otis", dot: "bg-otis", label: "All caught up" };
   }
   return { tone: "text-otis", dot: "bg-otis", label: "Otis listening" };
+};
+
+// The six iMessage tapbacks, in iMessage's order.
+const TAPBACK_EMOJI = ["❤️", "👍", "👎", "😂", "‼️", "❓"];
+
+// Long-press detector. Fires onLongPress after 450ms of steady touch; any
+// movement or release cancels. Suppresses the iOS text-selection callout so
+// the press feels native.
+const LongPress = ({
+  onLongPress,
+  children,
+}: {
+  onLongPress: () => void;
+  children: React.ReactNode;
+}) => {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = () => {
+    timer.current = setTimeout(onLongPress, 450);
+  };
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  return (
+    <div
+      onTouchStart={start}
+      onTouchMove={cancel}
+      onTouchEnd={cancel}
+      onMouseDown={start}
+      onMouseUp={cancel}
+      onMouseLeave={cancel}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onLongPress();
+      }}
+      style={{
+        WebkitTouchCallout: "none",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+      }}
+    >
+      {children}
+    </div>
+  );
 };
 
 // Carousel pane indices. Center (CHAT) is the default. SWIPE-RIGHT goes
@@ -168,6 +213,20 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
     }
     return map;
   }, [thread.opsCards]);
+
+  // Tapbacks, grouped per message for render.
+  const reactionsByMessage = useMemo(() => {
+    const map = new Map<string, { userId: string; emoji: string }[]>();
+    for (const r of thread.reactions ?? []) {
+      const arr = map.get(r.messageId);
+      if (arr) arr.push(r);
+      else map.set(r.messageId, [r]);
+    }
+    return map;
+  }, [thread.reactions]);
+
+  // Which message the tapback picker is open for (long-press to open).
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
 
   return (
     // Bound the chat area ABOVE the composer (and keyboard). Was: chat
@@ -350,37 +409,74 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
               m.author.kind === "human" && m.author.userId === currentUserId;
             const cardsFromThis = cardsByMessage.get(m.id);
             const itemCount = cardsFromThis?.length ?? 0;
+            const reactions = reactionsByMessage.get(m.id) ?? [];
+            const side = isSelf ? "self-end" : "self-start";
             return (
               <div key={m.id} className="flex flex-col gap-1">
-                <MessageBubble
-                  message={m}
-                  author={author}
-                  isSelf={isSelf}
-                />
-                {/* Agent read receipt. Otis is invisible in chat; his only
-                    footprint is this indicator — a small green dot once he's
-                    processed the message, with a count when items were
-                    tracked (tap → items pane). Like iMessage "Delivered",
-                    but for the agent layer. */}
+                {/* Tapback picker — long-press a bubble to open. */}
+                {reactingTo === m.id && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setReactingTo(null)}
+                    />
+                    <div
+                      className={`${side} z-50 flex gap-0.5 bg-card ring-1 ring-rule rounded-full px-2 py-1.5 shadow-lg`}
+                    >
+                      {TAPBACK_EMOJI.map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => {
+                            void toggleReaction(thread.id, m.id, e);
+                            setReactingTo(null);
+                          }}
+                          className="text-[22px] px-1.5 active:scale-125 transition-transform"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                <LongPress onLongPress={() => setReactingTo(m.id)}>
+                  <MessageBubble
+                    message={m}
+                    author={author}
+                    isSelf={isSelf}
+                  />
+                </LongPress>
+                {/* Tapbacks on this message. Tap a pill to open the picker
+                    (swap/remove your reaction). */}
+                {reactions.length > 0 && (
+                  <button
+                    onClick={() => setReactingTo(m.id)}
+                    className={`${side} -mt-0.5 flex items-center gap-0.5 bg-card ring-1 ring-rule rounded-full px-2 py-0.5 text-[14px]`}
+                  >
+                    {reactions.map((r) => (
+                      <span key={`${r.userId}-${r.emoji}`}>{r.emoji}</span>
+                    ))}
+                  </button>
+                )}
+                {/* Agent read receipt — a tiny green check once Otis has
+                    processed the message (every message, both sides), with
+                    a count when items were tracked (tap → items pane).
+                    Sent → delivered → tracked. */}
                 {itemCount > 0 ? (
                   <button
                     onClick={() => goToPane(PANE_ITEMS)}
                     aria-label={`Otis tracked ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
-                    className={`${
-                      isSelf ? "self-end" : "self-start"
-                    } flex items-center gap-1 text-[10.5px] text-otis`}
+                    className={`${side} flex items-center gap-0.5 text-[10.5px] font-semibold text-otis leading-none`}
                   >
-                    <span
-                      aria-hidden
-                      className="h-1.5 w-1.5 rounded-full bg-otis"
-                    />
+                    <span aria-hidden>✓</span>
                     <span>{itemCount}</span>
                   </button>
-                ) : isSelf && m.agentProcessedAt ? (
+                ) : m.agentProcessedAt ? (
                   <span
                     aria-label="Otis saw this"
-                    className="self-end h-1.5 w-1.5 rounded-full bg-otis/60"
-                  />
+                    className={`${side} text-[10.5px] font-semibold text-otis/70 leading-none`}
+                  >
+                    ✓
+                  </span>
                 ) : null}
               </div>
             );

@@ -151,6 +151,14 @@ export type SpokeSummary = {
   updatedAt: number; // ms epoch
 };
 
+// Tapback. One per user per message; a different emoji replaces, the same
+// emoji removes.
+export type Reaction = {
+  messageId: MessageId;
+  userId: UserId;
+  emoji: string;
+};
+
 export type PartnershipThread = {
   kind: "partnership";
   id: ThreadId;
@@ -159,6 +167,7 @@ export type PartnershipThread = {
   isDefault: boolean;
   messages: Message[];
   opsCards: OpsCard[];
+  reactions?: Reaction[];
   agentActive: boolean;
   createdAt: number;
 };

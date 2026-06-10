@@ -1,9 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import {
-  pickPhoto,
-  uploadAttachment,
-  type PickedPhoto,
-} from "../lib/attachments";
+import { pickPhoto, uploadAttachment } from "../lib/attachments";
 import type { Attachment } from "../types";
 
 type Props = {
@@ -13,11 +9,23 @@ type Props = {
   threadId?: string;
 };
 
+// A photo staged in the composer. Uploads EAGERLY the moment it's picked, so
+// tapping send is instant and any failure is visible on the thumbnail itself
+// (spinner → ready, or ⚠ + retry) instead of a popup at send time.
+type StagedPhoto = {
+  key: string;
+  dataUrl: string;
+  status: "uploading" | "ready" | "error";
+  attachment?: Attachment;
+  error?: string;
+  width: number;
+  height: number;
+  format: string;
+};
+
 // position:fixed at the bottom of the viewport. Rides with the keyboard
 // via --kbd-h (set in lib/keyboard from Keyboard plugin events).
-// Max textarea height in px — roughly 5 lines at 16px text. Beyond this the
-// textarea scrolls internally instead of growing further, so the composer
-// can't eat the entire chat.
+// Max textarea height in px — roughly 5 lines at 16px text.
 const MAX_COMPOSER_TEXT_HEIGHT = 120;
 
 export const Composer = ({
@@ -26,76 +34,106 @@ export const Composer = ({
   threadId,
 }: Props) => {
   const [value, setValue] = useState("");
-  const [pending, setPending] = useState<PickedPhoto[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [staged, setStaged] = useState<StagedPhoto[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-grow the textarea with content. Resets to "auto" first so it can
-  // also SHRINK when text is deleted. Writes the actual *measured* container
-  // height to --composer-h on the document root so message scroll areas can
-  // pad-bottom by the right amount and not hide content behind us.
+  // Auto-grow the textarea with content; track real container height in
+  // --composer-h so the chat scroll area ends above us.
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
     const next = Math.min(el.scrollHeight, MAX_COMPOSER_TEXT_HEIGHT);
     el.style.height = `${next}px`;
-    // Measure the actual container (which includes textarea + button +
-    // pending-photo strip + padding + border). More reliable than deriving
-    // from textarea height alone.
     const c = containerRef.current;
     if (c) {
-      const h = c.offsetHeight;
-      document.documentElement.style.setProperty("--composer-h", `${h}px`);
+      document.documentElement.style.setProperty(
+        "--composer-h",
+        `${c.offsetHeight}px`,
+      );
     }
     document
       .querySelectorAll<HTMLElement>("[data-thread-scroll='true']")
       .forEach((scroll) => {
         scroll.scrollTop = scroll.scrollHeight;
       });
-  }, [value, pending.length]);
+  }, [value, staged.length]);
 
-  // After submit, iOS dismisses the keyboard by default. Re-focus the
-  // textarea so the keyboard stays open and the user can keep typing
-  // (iMessage-style conversation mode).
   const keepKeyboardOpen = () => {
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
-  const submit = async () => {
+  const startUpload = (entry: StagedPhoto) => {
+    if (!threadId) return;
+    setStaged((curr) =>
+      curr.map((s) =>
+        s.key === entry.key
+          ? { ...s, status: "uploading", error: undefined }
+          : s,
+      ),
+    );
+    uploadAttachment(threadId, {
+      dataUrl: entry.dataUrl,
+      format: entry.format,
+      width: entry.width,
+      height: entry.height,
+    })
+      .then((attachment) => {
+        setStaged((curr) =>
+          curr.map((s) =>
+            s.key === entry.key ? { ...s, status: "ready", attachment } : s,
+          ),
+        );
+      })
+      .catch((e) => {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : typeof e === "object" && e !== null && "message" in e
+              ? String((e as { message: unknown }).message)
+              : String(e);
+        setStaged((curr) =>
+          curr.map((s) =>
+            s.key === entry.key ? { ...s, status: "error", error: msg } : s,
+          ),
+        );
+      });
+  };
+
+  const onAddPhoto = async () => {
+    const photo = await pickPhoto("prompt");
+    if (!photo) return; // cancelled — no popup, no fuss
+    const entry: StagedPhoto = {
+      key: crypto.randomUUID(),
+      dataUrl: photo.dataUrl,
+      status: "uploading",
+      width: photo.width,
+      height: photo.height,
+      format: photo.format,
+    };
+    setStaged((curr) => [...curr, entry]);
+    startUpload(entry);
+  };
+
+  const removeStaged = (key: string) => {
+    setStaged((curr) => curr.filter((s) => s.key !== key));
+  };
+
+  const anyUploading = staged.some((s) => s.status === "uploading");
+  const firstError = staged.find((s) => s.status === "error")?.error;
+  const readyAttachments = staged
+    .filter((s) => s.status === "ready" && s.attachment)
+    .map((s) => s.attachment as Attachment);
+  const canSend =
+    (value.trim().length > 0 || readyAttachments.length > 0) && !anyUploading;
+
+  const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed && pending.length === 0) return;
-    if (uploading) return;
-    let attachments: Attachment[] = [];
-    if (pending.length > 0 && threadId) {
-      setUploading(true);
-      try {
-        attachments = await Promise.all(
-          pending.map((p) => uploadAttachment(threadId, p)),
-        );
-        window.alert(
-          `Uploaded ${attachments.length} photo(s). Paths: ${attachments
-            .map((a) => a.path)
-            .join(", ")}`,
-        );
-      } catch (e) {
-        console.error("[Composer] upload failed", e);
-        const err = e instanceof Error ? e : new Error(String(e));
-        // err may have additional Supabase fields (statusCode, error, message).
-        const extra = JSON.stringify(e, Object.getOwnPropertyNames(e)).slice(
-          0,
-          500,
-        );
-        window.alert(`Upload failed: ${err.name}: ${err.message}\n\n${extra}`);
-        setUploading(false);
-        return;
-      }
-      setUploading(false);
-    }
-    onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+    if (!canSend) return;
+    onSend(trimmed, readyAttachments.length > 0 ? readyAttachments : undefined);
     setValue("");
-    setPending([]);
+    setStaged((curr) => curr.filter((s) => s.status === "error")); // keep failed ones visible
     keepKeyboardOpen();
   };
 
@@ -106,32 +144,6 @@ export const Composer = ({
         el.scrollTop = el.scrollHeight;
       });
   };
-
-  const onAddPhoto = async () => {
-    try {
-      const photo = await pickPhoto("prompt");
-      if (!photo) {
-        window.alert(
-          "Picker returned null. (Permission denied? Cancelled? Check Settings → Guildenstern → Camera/Photos.)",
-        );
-        return;
-      }
-      window.alert(
-        `Photo picked: ${photo.format} ${photo.width}×${photo.height}, ~${Math.round(photo.dataUrl.length / 1024)}KB`,
-      );
-      setPending((curr) => [...curr, photo]);
-    } catch (e) {
-      window.alert(
-        `Picker error: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`,
-      );
-    }
-  };
-
-  const removePending = (idx: number) => {
-    setPending((curr) => curr.filter((_, i) => i !== idx));
-  };
-
-  const canSend = (value.trim().length > 0 || pending.length > 0) && !uploading;
 
   return (
     <div
@@ -150,17 +162,33 @@ export const Composer = ({
         transition: "bottom 0.2s ease",
       }}
     >
-      {pending.length > 0 && (
+      {staged.length > 0 && (
         <div className="flex items-center gap-2 overflow-x-auto">
-          {pending.map((p, i) => (
-            <div key={i} className="relative shrink-0">
+          {staged.map((s) => (
+            <div key={s.key} className="relative shrink-0">
               <img
-                src={p.dataUrl}
+                src={s.dataUrl}
                 alt=""
-                className="h-16 w-16 rounded-xl object-cover ring-1 ring-rule"
+                className={`h-16 w-16 rounded-xl object-cover ring-1 ring-rule ${
+                  s.status !== "ready" ? "opacity-60" : ""
+                }`}
               />
+              {s.status === "uploading" && (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <span className="h-5 w-5 rounded-full border-2 border-paper/40 border-t-paper animate-spin" />
+                </span>
+              )}
+              {s.status === "error" && (
+                <button
+                  onClick={() => startUpload(s)}
+                  aria-label="Retry upload"
+                  className="absolute inset-0 flex items-center justify-center text-[18px]"
+                >
+                  ⚠
+                </button>
+              )}
               <button
-                onClick={() => removePending(i)}
+                onClick={() => removeStaged(s.key)}
                 aria-label="Remove photo"
                 className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-ink text-paper flex items-center justify-center text-[11px] font-semibold"
               >
@@ -170,13 +198,17 @@ export const Composer = ({
           ))}
         </div>
       )}
+      {firstError && (
+        <div className="text-[11px] text-attention leading-snug">
+          Photo upload failed: {firstError} — tap ⚠ to retry.
+        </div>
+      )}
       <div className="flex items-end gap-2">
         {threadId && (
           <button
-            onClick={onAddPhoto}
+            onClick={() => void onAddPhoto()}
             aria-label="Add photo"
-            disabled={uploading}
-            className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-muted hover:text-ink disabled:opacity-50 transition-colors"
+            className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-muted hover:text-ink transition-colors"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -189,9 +221,9 @@ export const Composer = ({
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="16" />
-              <line x1="8" y1="12" x2="16" y2="12" />
+              <rect x="3" y="5" width="18" height="14" rx="3" />
+              <circle cx="12" cy="12" r="3.2" />
+              <line x1="17.5" y1="8.5" x2="17.5" y2="8.5" strokeWidth="2.6" />
             </svg>
           </button>
         )}
@@ -206,8 +238,8 @@ export const Composer = ({
             const next = e.target.value;
             if (next.endsWith("\n") && !next.endsWith("\n\n")) {
               const trimmed = next.replace(/\n+$/, "").trim();
-              if (trimmed) {
-                void submit();
+              if (trimmed || readyAttachments.length > 0) {
+                submit();
                 return;
               }
             }
@@ -216,18 +248,17 @@ export const Composer = ({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              void submit();
+              submit();
             }
           }}
           enterKeyHint="send"
-          placeholder={uploading ? "Uploading…" : placeholder}
+          placeholder={placeholder}
           rows={1}
-          disabled={uploading}
           style={{ maxHeight: MAX_COMPOSER_TEXT_HEIGHT }}
-          className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink overflow-y-auto disabled:opacity-60"
+          className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink overflow-y-auto"
         />
         <button
-          onClick={() => void submit()}
+          onClick={submit}
           aria-label="Send"
           disabled={!canSend}
           className="h-9 w-9 rounded-full flex items-center justify-center shrink-0 bg-mira text-paper disabled:bg-card disabled:text-muted transition-colors"

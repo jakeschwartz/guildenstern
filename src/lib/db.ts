@@ -408,3 +408,88 @@ export function subscribeToThreadOpsCards(
     supabase.removeChannel(channel);
   };
 }
+
+// ---------- reactions (tapbacks) ----------
+
+export type ReactionRow = {
+  id: string;
+  message_id: string;
+  thread_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+};
+
+export async function getReactions(threadId: string): Promise<ReactionRow[]> {
+  const { data, error } = await supabase
+    .from("message_reactions")
+    .select("*")
+    .eq("thread_id", threadId);
+  if (error) throw error;
+  return (data ?? []) as ReactionRow[];
+}
+
+// Set (insert or replace) the caller's reaction on a message. One reaction
+// per user per message — the unique constraint + upsert give iMessage
+// semantics where picking a different tapback swaps it.
+export async function setReaction(
+  messageId: string,
+  threadId: string,
+  emoji: string,
+): Promise<void> {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("message_reactions")
+    .upsert(
+      {
+        message_id: messageId,
+        thread_id: threadId,
+        user_id: user.id,
+        emoji,
+      },
+      { onConflict: "message_id,user_id" },
+    );
+  if (error) throw error;
+}
+
+export async function removeReaction(messageId: string): Promise<void> {
+  const user = (await supabase.auth.getUser()).data.user;
+  if (!user) throw new Error("Not authenticated");
+  const { error } = await supabase
+    .from("message_reactions")
+    .delete()
+    .eq("message_id", messageId)
+    .eq("user_id", user.id);
+  if (error) throw error;
+}
+
+export function subscribeToThreadReactions(
+  threadId: string,
+  onChange: (
+    event: "INSERT" | "UPDATE" | "DELETE",
+    row: ReactionRow,
+  ) => void,
+) {
+  const channel = supabase
+    .channel(`message_reactions:${threadId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "message_reactions",
+        filter: `thread_id=eq.${threadId}`,
+      },
+      (payload) => {
+        const event = payload.eventType as "INSERT" | "UPDATE" | "DELETE";
+        // DELETE carries the old row (replica identity full); others the new.
+        const row = (event === "DELETE" ? payload.old : payload.new) as ReactionRow;
+        onChange(event, row);
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}

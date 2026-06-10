@@ -224,6 +224,32 @@ const subscribeThread = (threadId: string) => {
       },
     ),
   );
+  // Tapbacks land in realtime. One reaction per (message, user) — INSERT
+  // adds, UPDATE swaps the emoji, DELETE removes.
+  realtimeUnsubs.push(
+    db.subscribeToThreadReactions(threadId, (event, row) => {
+      const threads = state.threads.map((t) => {
+        if (t.id !== threadId || t.kind !== "partnership") return t;
+        const existing = t.reactions ?? [];
+        const without = existing.filter(
+          (r) => !(r.messageId === row.message_id && r.userId === row.user_id),
+        );
+        const reactions =
+          event === "DELETE"
+            ? without
+            : [
+                ...without,
+                {
+                  messageId: row.message_id,
+                  userId: row.user_id,
+                  emoji: row.emoji,
+                },
+              ];
+        return { ...t, reactions };
+      });
+      setState({ threads });
+    }),
+  );
 };
 
 export const hydrate = async (session: Session) => {
@@ -284,9 +310,10 @@ export const hydrate = async (session: Session) => {
         rows = [created];
       }
       for (const r of rows) {
-        const [msgs, cards] = await Promise.all([
+        const [msgs, cards, reactionRows] = await Promise.all([
           db.getMessages(r.id),
           db.getOpsCards(r.id),
+          db.getReactions(r.id),
         ]);
         partnershipThreads.push({
           kind: "partnership",
@@ -296,6 +323,11 @@ export const hydrate = async (session: Session) => {
           isDefault: r.is_default,
           messages: msgs.map(messageRowToMessage),
           opsCards: cards.map(opsCardRowToOpsCard),
+          reactions: reactionRows.map((row) => ({
+            messageId: row.message_id,
+            userId: row.user_id,
+            emoji: row.emoji,
+          })),
           agentActive: r.agent_active,
           createdAt: new Date(r.created_at).getTime(),
         });
@@ -371,6 +403,45 @@ export const sendMessage = async (
         : t,
     );
     setState({ threads: rolled, error: errMsg });
+  }
+};
+
+// Tapback toggle, iMessage semantics: same emoji removes, different emoji
+// replaces. Optimistic; realtime reconciles.
+export const toggleReaction = async (
+  threadId: string,
+  messageId: string,
+  emoji: string,
+) => {
+  const me = state.currentUserId;
+  const thread = state.threads.find(
+    (t) => t.id === threadId && t.kind === "partnership",
+  );
+  if (!thread || thread.kind !== "partnership") return;
+  const mine = (thread.reactions ?? []).find(
+    (r) => r.messageId === messageId && r.userId === me,
+  );
+  const removing = mine?.emoji === emoji;
+
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    const without = (t.reactions ?? []).filter(
+      (r) => !(r.messageId === messageId && r.userId === me),
+    );
+    return {
+      ...t,
+      reactions: removing
+        ? without
+        : [...without, { messageId, userId: me, emoji }],
+    };
+  });
+  setState({ threads });
+
+  try {
+    if (removing) await db.removeReaction(messageId);
+    else await db.setReaction(messageId, threadId, emoji);
+  } catch (e) {
+    console.error("[guildenstern] toggleReaction failed", e);
   }
 };
 

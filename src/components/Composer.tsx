@@ -1,4 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { pickPhoto, uploadAttachment } from "../lib/attachments";
 import type { Attachment } from "../types";
 
@@ -7,10 +13,11 @@ type Props = {
   placeholder?: string;
   // For uploading attachments — they live under <threadId>/ in storage.
   threadId?: string;
+  // Distinguishes multiple composers on the same thread (main chat vs
+  // otis_chat). Defaults to threadId.
+  stagingKey?: string;
 };
 
-// A photo staged in the composer. Uploads EAGERLY the moment it's picked;
-// failures show on the thumbnail itself (⚠ tap-to-retry) instead of a popup.
 type StagedPhoto = {
   key: string;
   dataUrl: string;
@@ -22,6 +29,40 @@ type StagedPhoto = {
   format: string;
 };
 
+// ---------------------------------------------------------------------------
+// Module-level staging store.
+//
+// CRITICAL: opening the native photo picker / camera backgrounds the app and
+// resizes the WebView, which can flip the carousel's paneIndex and UNMOUNT
+// the Composer. Component-local staged state died with it — the upload kept
+// running (closure) but the thumbnail never re-appeared, so the user had
+// nothing to send. (That's why orphaned uploads were landing in storage with
+// no message row.) Keeping the staging state here means a remounted Composer
+// picks up exactly where it left off, including uploads that finished while
+// it was unmounted.
+// ---------------------------------------------------------------------------
+
+type StageState = { staged: StagedPhoto[]; sendQueued: boolean };
+const EMPTY_STAGE: StageState = { staged: [], sendQueued: false };
+const stageStates = new Map<string, StageState>();
+const stageListeners = new Set<() => void>();
+
+const getStage = (key: string): StageState =>
+  stageStates.get(key) ?? EMPTY_STAGE;
+
+const updateStage = (
+  key: string,
+  updater: (s: StageState) => StageState,
+): void => {
+  stageStates.set(key, updater(getStage(key)));
+  stageListeners.forEach((l) => l());
+};
+
+const subscribeStage = (l: () => void): (() => void) => {
+  stageListeners.add(l);
+  return () => stageListeners.delete(l);
+};
+
 // Max textarea height in px — roughly 5 lines at 16px text.
 const MAX_COMPOSER_TEXT_HEIGHT = 120;
 
@@ -29,13 +70,13 @@ export const Composer = ({
   onSend,
   placeholder = "Message",
   threadId,
+  stagingKey,
 }: Props) => {
+  const key = stagingKey ?? threadId ?? "default";
   const [value, setValue] = useState("");
-  const [staged, setStaged] = useState<StagedPhoto[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Send was tapped while an upload was still running — fire automatically
-  // the moment uploads settle. iMessage never makes you wait on the spinner.
-  const [sendQueued, setSendQueued] = useState(false);
+  const stage = useSyncExternalStore(subscribeStage, () => getStage(key));
+  const { staged, sendQueued } = stage;
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,13 +108,14 @@ export const Composer = ({
 
   const startUpload = (entry: StagedPhoto) => {
     if (!threadId) return;
-    setStaged((curr) =>
-      curr.map((s) =>
-        s.key === entry.key
-          ? { ...s, status: "uploading", error: undefined }
-          : s,
+    updateStage(key, (s) => ({
+      ...s,
+      staged: s.staged.map((p) =>
+        p.key === entry.key
+          ? { ...p, status: "uploading", error: undefined }
+          : p,
       ),
-    );
+    }));
     uploadAttachment(threadId, {
       dataUrl: entry.dataUrl,
       format: entry.format,
@@ -81,11 +123,12 @@ export const Composer = ({
       height: entry.height,
     })
       .then((attachment) => {
-        setStaged((curr) =>
-          curr.map((s) =>
-            s.key === entry.key ? { ...s, status: "ready", attachment } : s,
+        updateStage(key, (s) => ({
+          ...s,
+          staged: s.staged.map((p) =>
+            p.key === entry.key ? { ...p, status: "ready", attachment } : p,
           ),
-        );
+        }));
       })
       .catch((e) => {
         const msg =
@@ -94,11 +137,12 @@ export const Composer = ({
             : typeof e === "object" && e !== null && "message" in e
               ? String((e as { message: unknown }).message)
               : String(e);
-        setStaged((curr) =>
-          curr.map((s) =>
-            s.key === entry.key ? { ...s, status: "error", error: msg } : s,
+        updateStage(key, (s) => ({
+          ...s,
+          staged: s.staged.map((p) =>
+            p.key === entry.key ? { ...p, status: "error", error: msg } : p,
           ),
-        );
+        }));
       });
   };
 
@@ -113,12 +157,15 @@ export const Composer = ({
       height: photo.height,
       format: photo.format,
     };
-    setStaged((curr) => [...curr, entry]);
+    updateStage(key, (s) => ({ ...s, staged: [...s.staged, entry] }));
     startUpload(entry);
   };
 
-  const removeStaged = (key: string) => {
-    setStaged((curr) => curr.filter((s) => s.key !== key));
+  const removeStaged = (photoKey: string) => {
+    updateStage(key, (s) => ({
+      ...s,
+      staged: s.staged.filter((p) => p.key !== photoKey),
+    }));
   };
 
   const anyUploading = staged.some((s) => s.status === "uploading");
@@ -129,31 +176,37 @@ export const Composer = ({
     value.trim().length > 0 || staged.some((s) => s.status !== "error");
 
   const fireSend = () => {
+    const current = getStage(key);
     const trimmed = value.trim();
-    const atts = staged
+    const atts = current.staged
       .filter((s) => s.status === "ready" && s.attachment)
       .map((s) => s.attachment as Attachment);
     if (!trimmed && atts.length === 0) return;
     onSend(trimmed, atts.length > 0 ? atts : undefined);
     setValue("");
-    // Failed photos stay staged (visible + retryable) — they're not silently lost.
-    setStaged((curr) => curr.filter((s) => s.status === "error"));
+    // Failed photos stay staged (visible + retryable).
+    updateStage(key, (s) => ({
+      ...s,
+      staged: s.staged.filter((p) => p.status === "error"),
+    }));
     keepKeyboardOpen();
   };
 
   const submit = () => {
     if (!hasContent) return;
     if (anyUploading) {
-      setSendQueued(true);
+      updateStage(key, (s) => ({ ...s, sendQueued: true }));
       return;
     }
     fireSend();
   };
 
-  // Queued send fires as soon as the last upload settles.
+  // Queued send fires as soon as the last upload settles — including the
+  // case where the Composer was remounted in between (effect runs on mount
+  // and sees the persisted queue flag).
   useEffect(() => {
     if (!sendQueued || anyUploading) return;
-    setSendQueued(false);
+    updateStage(key, (s) => ({ ...s, sendQueued: false }));
     fireSend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendQueued, anyUploading]);
@@ -188,8 +241,7 @@ export const Composer = ({
         transition: "bottom 0.2s ease",
       }}
     >
-      {/* Anchored attach menu, iMessage/Signal-style: small sheet that pops
-          up from the + button with the two sources. */}
+      {/* Anchored attach menu, iMessage/Signal-style. */}
       {menuOpen && (
         <>
           <div
@@ -223,42 +275,6 @@ export const Composer = ({
         </>
       )}
 
-      {staged.length > 0 && (
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {staged.map((s) => (
-            <div key={s.key} className="relative shrink-0">
-              <img
-                src={s.dataUrl}
-                alt=""
-                className={`h-16 w-16 rounded-xl object-cover ring-1 ring-rule ${
-                  s.status !== "ready" ? "opacity-60" : ""
-                }`}
-              />
-              {s.status === "uploading" && (
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="h-5 w-5 rounded-full border-2 border-paper/40 border-t-paper animate-spin" />
-                </span>
-              )}
-              {s.status === "error" && (
-                <button
-                  onClick={() => startUpload(s)}
-                  aria-label="Retry upload"
-                  className="absolute inset-0 flex items-center justify-center text-[18px]"
-                >
-                  ⚠
-                </button>
-              )}
-              <button
-                onClick={() => removeStaged(s.key)}
-                aria-label="Remove photo"
-                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-ink text-paper flex items-center justify-center text-[11px] font-semibold"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       {firstError && (
         <div className="text-[11px] text-attention leading-snug">
           Photo upload failed: {firstError} — tap ⚠ to retry.
@@ -269,6 +285,7 @@ export const Composer = ({
           Sending as soon as the photo finishes uploading…
         </div>
       )}
+
       <div className="flex items-end gap-2">
         {threadId && (
           <button
@@ -294,36 +311,79 @@ export const Composer = ({
             </svg>
           </button>
         )}
-        <textarea
-          ref={inputRef}
-          value={value}
-          cols={1}
-          onFocus={() => {
-            setTimeout(scrollThreadsToBottom, 300);
-          }}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (next.endsWith("\n") && !next.endsWith("\n\n")) {
-              const trimmed = next.replace(/\n+$/, "").trim();
-              if (trimmed || staged.length > 0) {
-                submit();
-                return;
+
+        {/* The input bubble. iMessage-style: staged photo thumbnails live
+            INSIDE the bubble, above the text — unmissable, and visually one
+            unit with what you're about to send. */}
+        <div className="flex-1 min-w-0 bg-card ring-1 ring-rule rounded-2xl px-3 py-2 flex flex-col gap-2 focus-within:ring-ink transition-shadow">
+          {staged.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto pt-1">
+              {staged.map((s) => (
+                <div key={s.key} className="relative shrink-0">
+                  <img
+                    src={s.dataUrl}
+                    alt=""
+                    className={`h-20 w-20 rounded-xl object-cover ${
+                      s.status !== "ready" ? "opacity-60" : ""
+                    }`}
+                  />
+                  {s.status === "uploading" && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="h-5 w-5 rounded-full border-2 border-paper/40 border-t-paper animate-spin" />
+                    </span>
+                  )}
+                  {s.status === "error" && (
+                    <button
+                      onClick={() => startUpload(s)}
+                      aria-label="Retry upload"
+                      className="absolute inset-0 flex items-center justify-center text-[18px]"
+                    >
+                      ⚠
+                    </button>
+                  )}
+                  <button
+                    onClick={() => removeStaged(s.key)}
+                    aria-label="Remove photo"
+                    className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-ink text-paper flex items-center justify-center text-[11px] font-semibold shadow"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={inputRef}
+            value={value}
+            cols={1}
+            onFocus={() => {
+              setTimeout(scrollThreadsToBottom, 300);
+            }}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next.endsWith("\n") && !next.endsWith("\n\n")) {
+                const trimmed = next.replace(/\n+$/, "").trim();
+                if (trimmed || staged.length > 0) {
+                  submit();
+                  return;
+                }
               }
-            }
-            setValue(next);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          enterKeyHint="send"
-          placeholder={placeholder}
-          rows={1}
-          style={{ maxHeight: MAX_COMPOSER_TEXT_HEIGHT }}
-          className="flex-1 min-w-0 resize-none bg-card ring-1 ring-rule rounded-2xl px-3.5 py-2 text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none focus:ring-ink overflow-y-auto"
-        />
+              setValue(next);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            enterKeyHint="send"
+            placeholder={placeholder}
+            rows={1}
+            style={{ maxHeight: MAX_COMPOSER_TEXT_HEIGHT }}
+            className="w-full resize-none bg-transparent text-[16px] leading-snug text-ink placeholder:text-muted focus:outline-none overflow-y-auto"
+          />
+        </div>
+
         <button
           onClick={submit}
           aria-label="Send"

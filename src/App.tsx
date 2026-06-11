@@ -59,13 +59,60 @@ const previewHash =
     ? window.location.hash.slice("#preview-".length)
     : null;
 
-if (previewHash === "ops") {
+if (previewHash === "ops" || previewHash === "app") {
   seedDevState(previewState);
 } else if (previewHash === "inbox-solo") {
   seedDevState(previewStateSolo);
 }
 
+// Fully navigable demo shell against seeded data — for screen-share demos.
+// Inbox → tap a thread → real working Back button → tap another. No auth,
+// no Supabase; the agent won't respond live (seeded data only).
+const PreviewApp = () => {
+  const threads = useStore((s) => s.threads);
+  const currentUserId = useStore((s) => s.currentUserId);
+  const [route, setRoute] = useState<Route>({ name: "inbox" });
+
+  const open = (threadId: string) => {
+    const t = threads.find((tt) => tt.id === threadId);
+    if (!t) return;
+    if (t.kind === "personal" && t.ownerId === currentUserId) {
+      setRoute({ name: "personal", threadId });
+    } else if (t.kind === "partnership") {
+      setRoute({ name: "partnership", threadId });
+    }
+  };
+  const goInbox = () => setRoute({ name: "inbox" });
+
+  return (
+    <Frame>
+      {route.name === "inbox" && (
+        <ThreadList
+          onOpen={open}
+          onNew={() => {}}
+          onFilter={() => {}}
+          onMenu={() => {}}
+        />
+      )}
+      {route.name === "personal" && (
+        <PersonalThread
+          threadId={route.threadId}
+          onBack={goInbox}
+          onOpenThread={open}
+        />
+      )}
+      {route.name === "partnership" && (
+        <PartnershipThread threadId={route.threadId} onBack={goInbox} />
+      )}
+    </Frame>
+  );
+};
+
 export const App = () => {
+  // Hash route: fully navigable demo (inbox ↔ threads, working back button).
+  if (previewHash === "app") {
+    return <PreviewApp />;
+  }
   // Hash route: render the partnership thread against seeded mock data.
   // Bypasses auth + hydration. Useful for UI iteration on this machine
   // without a real Supabase session (or in the Claude preview tool).

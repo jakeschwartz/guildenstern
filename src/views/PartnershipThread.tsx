@@ -227,6 +227,34 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
 
   // Which message the tapback picker is open for (long-press to open).
   const [reactingTo, setReactingTo] = useState<string | null>(null);
+  // Which message we're replying to (quote shown in the composer).
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+
+  // Fast lookup for rendering quoted snippets above reply bubbles.
+  const messagesById = useMemo(() => {
+    const map = new Map<string, (typeof thread.messages)[number]>();
+    for (const m of thread.messages) map.set(m.id, m);
+    return map;
+  }, [thread.messages]);
+
+  // Short label + snippet for a quoted message.
+  const quoteFor = (messageId: string) => {
+    const q = messagesById.get(messageId);
+    if (!q) return null;
+    const name =
+      q.author.kind === "agent"
+        ? "Otis"
+        : q.author.userId === currentUserId
+          ? "You"
+          : usersById.get(q.author.userId)?.name?.split(" ")[0] ?? "Partner";
+    const snippet =
+      q.body.trim().length > 0
+        ? q.body
+        : (q.attachments?.length ?? 0) > 0
+          ? "📷 Photo"
+          : "";
+    return { name, snippet };
+  };
 
   return (
     // Bound the chat area ABOVE the composer (and keyboard). Was: chat
@@ -413,31 +441,65 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
             const side = isSelf ? "self-end" : "self-start";
             return (
               <div key={m.id} className="flex flex-col gap-1">
-                {/* Tapback picker — long-press a bubble to open. */}
+                {/* Long-press menu: tapback emoji row + a Reply action. */}
                 {reactingTo === m.id && (
                   <>
                     <div
                       className="fixed inset-0 z-40"
                       onClick={() => setReactingTo(null)}
                     />
-                    <div
-                      className={`${side} z-50 flex gap-0.5 bg-card ring-1 ring-rule rounded-full px-2 py-1.5 shadow-lg`}
-                    >
-                      {TAPBACK_EMOJI.map((e) => (
-                        <button
-                          key={e}
-                          onClick={() => {
-                            void toggleReaction(thread.id, m.id, e);
-                            setReactingTo(null);
-                          }}
-                          className="text-[22px] px-1.5 active:scale-125 transition-transform"
-                        >
-                          {e}
-                        </button>
-                      ))}
+                    <div className={`${side} z-50 flex flex-col gap-1`}>
+                      <div className="flex gap-0.5 bg-card ring-1 ring-rule rounded-full px-2 py-1.5 shadow-lg">
+                        {TAPBACK_EMOJI.map((e) => (
+                          <button
+                            key={e}
+                            onClick={() => {
+                              void toggleReaction(thread.id, m.id, e);
+                              setReactingTo(null);
+                            }}
+                            className="text-[22px] px-1.5 active:scale-125 transition-transform"
+                          >
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setReplyingTo(m.id);
+                          setReactingTo(null);
+                        }}
+                        className={`${isSelf ? "self-end" : "self-start"} flex items-center gap-1.5 bg-card ring-1 ring-rule rounded-full px-3 py-1.5 shadow-lg text-[13px] text-ink`}
+                      >
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 17 4 12 9 7" />
+                          <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                        </svg>
+                        Reply
+                      </button>
                     </div>
                   </>
                 )}
+                {/* Quoted message above the bubble when this is a reply. */}
+                {m.replyToMessageId &&
+                  (() => {
+                    const q = quoteFor(m.replyToMessageId);
+                    if (!q) return null;
+                    return (
+                      <div
+                        className={`${side} flex items-stretch gap-1.5 max-w-[80%] opacity-70`}
+                      >
+                        <div className="w-0.5 rounded-full bg-rule shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-[10.5px] font-semibold text-muted">
+                            {q.name}
+                          </div>
+                          <div className="text-[12px] text-muted truncate">
+                            {q.snippet}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 <LongPress onLongPress={() => setReactingTo(m.id)}>
                   <MessageBubble
                     message={m}
@@ -514,9 +576,13 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       {paneIndex === PANE_CHAT && (
         <Composer
           threadId={thread.id}
+          replyPreview={replyingTo ? quoteFor(replyingTo) : null}
+          onCancelReply={() => setReplyingTo(null)}
           onSend={(body, attachments) => {
-            if (body.trim() || (attachments && attachments.length > 0))
-              sendMessage(thread.id, body, "main", attachments);
+            if (body.trim() || (attachments && attachments.length > 0)) {
+              sendMessage(thread.id, body, "main", attachments, replyingTo);
+              setReplyingTo(null);
+            }
           }}
           placeholder={
             partner ? `Message ${partner.name}` : "Message your partner…"

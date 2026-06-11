@@ -234,6 +234,7 @@ export type MessageRow = {
   context: "main" | "otis_chat";
   attachments: Attachment[] | null;
   agent_processed_at: string | null;
+  reply_to_message_id: string | null;
 };
 
 export async function getMessages(
@@ -255,6 +256,7 @@ export async function sendMessage(
   body: string,
   context: "main" | "otis_chat" = "main",
   attachments: Attachment[] = [],
+  replyToMessageId: string | null = null,
 ): Promise<MessageRow> {
   const user = (await supabase.auth.getUser()).data.user;
   if (!user) throw new Error("Not authenticated");
@@ -267,6 +269,7 @@ export async function sendMessage(
       body,
       context,
       attachments,
+      reply_to_message_id: replyToMessageId,
     })
     .select("*")
     .single();

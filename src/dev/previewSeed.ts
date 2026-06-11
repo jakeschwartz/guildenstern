@@ -168,11 +168,33 @@ const partnershipThread: PartnershipThread = {
   createdAt: NOW - 30 * 24 * HOUR,
 };
 
+// A little Mira conversation so the demo's personal thread isn't empty.
+const personalMessages: Message[] = [
+  {
+    id: "p1",
+    author: { kind: "agent" },
+    body: "Morning. You've got the call with the contractor at 9, and Eli's pickup at 3. Want me to set a reminder for the diaper run?",
+    createdAt: NOW - 3 * HOUR,
+  },
+  {
+    id: "p2",
+    author: { kind: "human", userId: ME_ID },
+    body: "yeah do it. also remind me to text my mom back",
+    createdAt: NOW - 3 * HOUR + 2 * MIN,
+  },
+  {
+    id: "p3",
+    author: { kind: "agent" },
+    body: "Done — diaper run on your list, and a nudge to text your mom. Anything else on today's plate?",
+    createdAt: NOW - 3 * HOUR + 3 * MIN,
+  },
+];
+
 const personalThread: PersonalThread = {
   kind: "personal",
   id: PERSONAL_THREAD_ID,
   ownerId: ME_ID,
-  messages: [],
+  messages: personalMessages,
   agentActive: true,
   createdAt: NOW - 30 * 24 * HOUR,
 };

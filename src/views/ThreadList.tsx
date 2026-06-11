@@ -3,6 +3,7 @@
 // pending dot when something needs you.
 
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useStore } from "../state/store";
 import type { PartnershipThread, PersonalThread, User } from "../types";
 import { formatRelative } from "../lib/time";
@@ -77,11 +78,13 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
     <div className="flex flex-col h-full">
       <InboxHeader onFilter={onFilter} onNew={onNew} onMenu={onMenu} />
 
-      {pushStatus !== "✓ token saved" && pushStatus !== "web (not native)" && (
-        <div className="bg-attention-tint/40 px-3 py-1 text-[10.5px] text-attention border-b border-rule">
-          push: {pushStatus}
-        </div>
-      )}
+      {Capacitor.isNativePlatform() &&
+        pushStatus !== "✓ token saved" &&
+        pushStatus !== "web (not native)" && (
+          <div className="bg-attention-tint/40 px-3 py-1 text-[10.5px] text-attention border-b border-rule">
+            push: {pushStatus}
+          </div>
+        )}
 
       <div className="flex-1 overflow-y-auto">
         {personalThread && (

@@ -106,6 +106,7 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     agentProcessedAt: row.agent_processed_at
       ? new Date(row.agent_processed_at).getTime()
       : undefined,
+    replyToMessageId: row.reply_to_message_id ?? undefined,
     briefing,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,
@@ -372,6 +373,7 @@ export const sendMessage = async (
   body: string,
   context: "main" | "otis_chat" = "main",
   attachments: Attachment[] = [],
+  replyToMessageId: string | null = null,
 ) => {
   // Optimistic: append locally; realtime will reconcile the canonical row.
   const optimistic: Message = {
@@ -381,13 +383,14 @@ export const sendMessage = async (
     createdAt: Date.now(),
     context,
     attachments: attachments.length > 0 ? attachments : undefined,
+    replyToMessageId: replyToMessageId ?? undefined,
   };
   const threads = state.threads.map((t) =>
     t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
   );
   setState({ threads });
   try {
-    await db.sendMessage(threadId, body, context, attachments);
+    await db.sendMessage(threadId, body, context, attachments, replyToMessageId);
   } catch (e) {
     // Loud failure: log the raw error AND alert so dev iteration without
     // Safari Web Inspector still surfaces the problem. The optimistic message

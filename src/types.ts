@@ -71,6 +71,8 @@ export type Message = {
   // (partnership main chat only). Renders as a small green dot on the
   // sender's message — the fourth delivery state after sent/delivered/read.
   agentProcessedAt?: number;
+  // The message this one is a reply to (quoted above the bubble).
+  replyToMessageId?: MessageId;
   briefing?: {
     title: string;
     items: BriefingItem[];

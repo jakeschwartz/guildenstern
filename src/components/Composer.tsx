@@ -16,6 +16,10 @@ type Props = {
   // Distinguishes multiple composers on the same thread (main chat vs
   // otis_chat). Defaults to threadId.
   stagingKey?: string;
+  // When replying: a preview chip ("Replying to <name>: <snippet>") shows
+  // above the input with an × to cancel.
+  replyPreview?: { name: string; snippet: string } | null;
+  onCancelReply?: () => void;
 };
 
 type StagedPhoto = {
@@ -71,6 +75,8 @@ export const Composer = ({
   placeholder = "Message",
   threadId,
   stagingKey,
+  replyPreview,
+  onCancelReply,
 }: Props) => {
   const key = stagingKey ?? threadId ?? "default";
   const [value, setValue] = useState("");
@@ -100,11 +106,17 @@ export const Composer = ({
       .forEach((scroll) => {
         scroll.scrollTop = scroll.scrollHeight;
       });
-  }, [value, staged.length, menuOpen]);
+  }, [value, staged.length, menuOpen, replyPreview]);
 
   const keepKeyboardOpen = () => {
     setTimeout(() => inputRef.current?.focus(), 0);
   };
+
+  // Focus the input the moment a reply is initiated (iMessage opens the
+  // keyboard with the quote attached).
+  useEffect(() => {
+    if (replyPreview) inputRef.current?.focus();
+  }, [replyPreview]);
 
   const startUpload = (entry: StagedPhoto) => {
     if (!threadId) return;
@@ -275,6 +287,26 @@ export const Composer = ({
         </>
       )}
 
+      {replyPreview && (
+        <div className="flex items-center gap-2 pl-1">
+          <div className="w-0.5 self-stretch rounded-full bg-otis shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-semibold text-otis">
+              Replying to {replyPreview.name}
+            </div>
+            <div className="text-[12px] text-muted truncate">
+              {replyPreview.snippet}
+            </div>
+          </div>
+          <button
+            onClick={onCancelReply}
+            aria-label="Cancel reply"
+            className="h-6 w-6 rounded-full flex items-center justify-center text-muted hover:text-ink shrink-0"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {firstError && (
         <div className="text-[11px] text-attention leading-snug">
           Photo upload failed: {firstError} — tap ⚠ to retry.

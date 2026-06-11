@@ -20,6 +20,9 @@ type Props = {
   // above the input with an × to cancel.
   replyPreview?: { name: string; snippet: string } | null;
   onCancelReply?: () => void;
+  // Fired true on keystroke, false after a typing pause or on send, for
+  // the typing indicator. The parent broadcasts it.
+  onTyping?: (typing: boolean) => void;
 };
 
 type StagedPhoto = {
@@ -77,6 +80,7 @@ export const Composer = ({
   stagingKey,
   replyPreview,
   onCancelReply,
+  onTyping,
 }: Props) => {
   const key = stagingKey ?? threadId ?? "default";
   const [value, setValue] = useState("");
@@ -111,6 +115,23 @@ export const Composer = ({
   const keepKeyboardOpen = () => {
     setTimeout(() => inputRef.current?.focus(), 0);
   };
+
+  // Typing signal: fire true on keystroke, schedule a false after a 2.5s
+  // pause. Cleared on send/unmount.
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signalTyping = () => {
+    if (!onTyping) return;
+    onTyping(true);
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => onTyping(false), 2500);
+  };
+  const stopTyping = () => {
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = null;
+    onTyping?.(false);
+  };
+  useEffect(() => () => stopTyping(), []); // clear on unmount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 
   // Focus the input the moment a reply is initiated (iMessage opens the
   // keyboard with the quote attached).
@@ -194,6 +215,7 @@ export const Composer = ({
       .filter((s) => s.status === "ready" && s.attachment)
       .map((s) => s.attachment as Attachment);
     if (!trimmed && atts.length === 0) return;
+    stopTyping();
     onSend(trimmed, atts.length > 0 ? atts : undefined);
     setValue("");
     // Failed photos stay staged (visible + retryable).
@@ -401,6 +423,7 @@ export const Composer = ({
                 }
               }
               setValue(next);
+              signalTyping();
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {

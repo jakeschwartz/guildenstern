@@ -9,6 +9,7 @@ import {
   useStore,
 } from "../state/store";
 import { Voice } from "../components/Voice";
+import { sendTyping, subscribeTyping } from "../lib/typing";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { ThreadAnchor } from "../components/ThreadAnchor";
@@ -229,6 +230,17 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
   const [reactingTo, setReactingTo] = useState<string | null>(null);
   // Which message we're replying to (quote shown in the composer).
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+
+  // Typing indicator: which partner ids are currently typing in this thread.
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  useEffect(() => {
+    const unsub = subscribeTyping(thread.id, (ids) =>
+      setTypingUserIds(ids.filter((id) => id !== currentUserId)),
+    );
+    return unsub;
+  }, [thread.id, currentUserId]);
+  const typingPartner =
+    typingUserIds.length > 0 ? usersById.get(typingUserIds[0]!) : undefined;
 
   // Fast lookup for rendering quoted snippets above reply bubbles.
   const messagesById = useMemo(() => {
@@ -543,6 +555,20 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
               </div>
             );
           })}
+        {/* Typing indicator — three dots in a partner-side bubble while
+            they're composing. Ephemeral (Realtime broadcast, not persisted). */}
+        {typingPartner && (
+          <div className="self-start flex flex-col gap-1 max-w-[92%]">
+            <span className="text-[13px] font-semibold text-ink">
+              {typingPartner.name}
+            </span>
+            <div className="bg-card rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-muted animate-bounce [animation-delay:-0.3s]" />
+              <span className="h-2 w-2 rounded-full bg-muted animate-bounce [animation-delay:-0.15s]" />
+              <span className="h-2 w-2 rounded-full bg-muted animate-bounce" />
+            </div>
+          </div>
+        )}
         </div>
 
         {/* Pane 2 — Context (rightmost). Calendar (your Google events) in
@@ -578,6 +604,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
           threadId={thread.id}
           replyPreview={replyingTo ? quoteFor(replyingTo) : null}
           onCancelReply={() => setReplyingTo(null)}
+          onTyping={(t) => sendTyping(thread.id, currentUserId, t)}
           onSend={(body, attachments) => {
             if (body.trim() || (attachments && attachments.length > 0)) {
               sendMessage(thread.id, body, "main", attachments, replyingTo);

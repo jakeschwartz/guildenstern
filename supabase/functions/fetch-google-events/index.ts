@@ -62,17 +62,36 @@ function normalize(e: GoogleEvent): NormalizedEvent | null {
   };
 }
 
+// CORS: the Authorization header is NOT a CORS-safelisted header, so even a
+// GET triggers a preflight. Without these headers + the OPTIONS handler, the
+// WKWebView silently blocked every events fetch — the calendar pane sat
+// empty since launch. (Same bug class as synthesize-spoke's "Load failed".)
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders });
+  }
+
   // Resolve user from Supabase JWT in Authorization header.
   const auth = req.headers.get("Authorization") ?? "";
   const userJwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (!userJwt) {
-    return new Response("missing Authorization", { status: 401 });
+    return new Response("missing Authorization", {
+      status: 401,
+      headers: corsHeaders,
+    });
   }
   const { data: userData, error: userErr } =
     await supabase.auth.getUser(userJwt);
   if (userErr || !userData.user) {
-    return new Response("auth failed", { status: 401 });
+    return new Response("auth failed", { status: 401, headers: corsHeaders });
   }
   const userId = userData.user.id;
 
@@ -90,7 +109,7 @@ Deno.serve(async (req) => {
     console.error("[fetch-google-events] token refresh failed", e);
     return new Response(
       JSON.stringify({ error: "token_refresh_failed" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: jsonHeaders },
     );
   }
   if (!token) {
@@ -98,7 +117,7 @@ Deno.serve(async (req) => {
     // error so the client can render the empty state cleanly.
     return new Response(
       JSON.stringify({ events: [], connected: false }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      { status: 200, headers: jsonHeaders },
     );
   }
 
@@ -119,7 +138,7 @@ Deno.serve(async (req) => {
     console.error("[fetch-google-events] Calendar API failed", res.status, txt);
     return new Response(
       JSON.stringify({ error: "calendar_api_failed", status: res.status }),
-      { status: 502, headers: { "Content-Type": "application/json" } },
+      { status: 502, headers: jsonHeaders },
     );
   }
   const json = (await res.json()) as { items: GoogleEvent[] };
@@ -129,6 +148,6 @@ Deno.serve(async (req) => {
 
   return new Response(
     JSON.stringify({ events, connected: true }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
+    { status: 200, headers: jsonHeaders },
   );
 });

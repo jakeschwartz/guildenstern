@@ -56,7 +56,13 @@ async function getApnsJwt(): Promise<string> {
 }
 
 // --- types ---
-type WebhookPayload = {
+// Two payload shapes:
+// 1. The messages-INSERT webhook (pg_net trigger on every new message).
+// 2. CARDS_ASSIGNED — fired by the ops_cards statement trigger when a burst
+//    lands items on a partner. The "waiting on you" push: the highest-value
+//    notification in the app, because something concrete just landed on
+//    your plate from your partner.
+type MessagePayload = {
   type: "INSERT";
   table: "messages";
   record: {
@@ -65,8 +71,29 @@ type WebhookPayload = {
     author_kind: "human" | "agent";
     author_user_id: string | null;
     body: string;
+    context?: "main" | "otis_chat";
   };
 };
+type CardsPayload = {
+  type: "CARDS_ASSIGNED";
+  owner_id: string;
+  source_user_id: string;
+  thread_id: string;
+  titles: string[];
+};
+type WebhookPayload = MessagePayload | CardsPayload;
+
+// Recipient's open-item count → app icon badge. The red number that sits on
+// the icon until the items are handled is the most persistent attention cue
+// iOS allows.
+async function pendingCountFor(userId: string): Promise<number> {
+  const { count } = await supabase
+    .from("ops_cards")
+    .select("*", { count: "exact", head: true })
+    .eq("owner_id", userId)
+    .eq("status", "pending");
+  return count ?? 0;
+}
 
 // --- send to one APNs token ---
 async function sendApns(
@@ -74,6 +101,7 @@ async function sendApns(
   token: string,
   apnsEnv: "production" | "sandbox",
   alert: { title: string; body: string },
+  opts: { badge?: number; threadId?: string } = {},
 ): Promise<{ status: number; body?: string }> {
   const host =
     apnsEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
@@ -90,7 +118,14 @@ async function sendApns(
       aps: {
         alert,
         sound: "default",
-        badge: 1,
+        ...(opts.badge !== undefined ? { badge: opts.badge } : {}),
+        // Group notifications per conversation, like iMessage.
+        ...(opts.threadId ? { "thread-id": opts.threadId } : {}),
+        // Time Sensitive: stays on the lock screen longer and can break
+        // through Focus modes. Requires the time-sensitive entitlement on
+        // the app; without it APNs gracefully downgrades to active.
+        "interruption-level": "time-sensitive",
+        "relevance-score": 0.9,
       },
     }),
   });
@@ -109,6 +144,58 @@ Deno.serve(async (req) => {
   } catch {
     return new Response("bad json", { status: 400 });
   }
+
+  // --- "Waiting on you" push: items just landed on a partner ---
+  if (payload.type === "CARDS_ASSIGNED") {
+    const { owner_id, source_user_id, thread_id, titles } = payload;
+    if (!owner_id || owner_id === source_user_id || !titles?.length) {
+      return new Response(JSON.stringify({ sent: 0 }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const { data: sender } = await supabase
+      .from("profiles")
+      .select("name")
+      .eq("id", source_user_id)
+      .single();
+    const senderFirst = (sender?.name ?? "Your partner").split(" ")[0];
+    const shown = titles.slice(0, 3).join(", ");
+    const more = titles.length > 3 ? ` +${titles.length - 3} more` : "";
+    const alert = {
+      title: `✅ ${senderFirst} put ${titles.length === 1 ? "something" : `${titles.length} things`} on your list`,
+      body: shown + more,
+    };
+    const badge = await pendingCountFor(owner_id);
+    const { data: tokens } = await supabase
+      .from("push_tokens")
+      .select("token, apns_env")
+      .eq("user_id", owner_id)
+      .eq("platform", "ios");
+    if (!tokens?.length) {
+      return new Response(JSON.stringify({ sent: 0, note: "no tokens" }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const jwt = await getApnsJwt();
+    const results = await Promise.all(
+      tokens.map((t) =>
+        sendApns(
+          jwt,
+          t.token,
+          (t.apns_env as "production" | "sandbox") ?? "production",
+          alert,
+          { badge, threadId: thread_id },
+        ),
+      ),
+    );
+    return new Response(
+      JSON.stringify({
+        sent: results.filter((r) => r.status === 200).length,
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  }
+
   const msg = payload.record;
   if (!msg) return new Response("no record", { status: 400 });
 
@@ -140,19 +227,20 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Look up sender name for the title (agent vs human). Per UX_SPEC §8.4:
-  // Mira when it's for you alone (personal thread); Otis when it originates in
-  // a shared room (partnership thread).
+  // Emoji-coded titles — iOS doesn't allow custom banner colors, so the
+  // emoji IS the color. 💚 = your partner (the green of the partnership),
+  // 🟢 = Otis, 🟣 = Mira. Voice rule per UX_SPEC §8.4: Mira for you-alone,
+  // Otis for shared rooms.
   let title = "Guildenstern";
   if (msg.author_kind === "agent") {
-    title = thread.kind === "personal" ? "Mira" : "Otis";
+    title = thread.kind === "personal" ? "🟣 Mira" : "🟢 Otis";
   } else if (msg.author_user_id) {
     const { data: sender } = await supabase
       .from("profiles")
       .select("name")
       .eq("id", msg.author_user_id)
       .single();
-    if (sender?.name) title = sender.name;
+    if (sender?.name) title = `💚 ${sender.name}`;
   }
   const alert = {
     title,
@@ -161,13 +249,19 @@ Deno.serve(async (req) => {
 
   const { data: tokens } = await supabase
     .from("push_tokens")
-    .select("token, apns_env, platform")
+    .select("token, apns_env, platform, user_id")
     .in("user_id", recipientIds)
     .eq("platform", "ios");
   if (!tokens || tokens.length === 0) {
     return new Response(JSON.stringify({ sent: 0, note: "no tokens" }), {
       headers: { "content-type": "application/json" },
     });
+  }
+
+  // Per-recipient badge = their open-item count.
+  const badgeByUser = new Map<string, number>();
+  for (const rid of recipientIds) {
+    badgeByUser.set(rid, await pendingCountFor(rid));
   }
 
   const jwt = await getApnsJwt();
@@ -178,6 +272,10 @@ Deno.serve(async (req) => {
         t.token,
         (t.apns_env as "production" | "sandbox") ?? "production",
         alert,
+        {
+          badge: badgeByUser.get(t.user_id as string),
+          threadId: msg.thread_id,
+        },
       ),
     ),
   );

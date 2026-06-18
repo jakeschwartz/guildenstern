@@ -12,6 +12,7 @@ import { ThreadAnchor } from "../components/ThreadAnchor";
 import { Sheet } from "../components/Sheet";
 import { Avatar } from "../components/Avatar";
 import { formatClock } from "../lib/time";
+import { useSwipeBack } from "../hooks/useSwipeBack";
 import type { Conflict, OpsBucket, OpsCard, User } from "../types";
 
 type Props = {
@@ -65,6 +66,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
     [users],
   );
   const [sheetOpen, setSheetOpen] = useState(false);
+  useSwipeBack(onBack, !sheetOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageCount =
     thread?.kind === "partnership" ? thread.messages.length : 0;
@@ -147,7 +149,7 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
       <div
         ref={scrollRef}
         data-thread-scroll="true"
-        className="flex-1 overflow-y-auto pt-4 flex flex-col gap-4 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pt-4 flex flex-col gap-4 min-h-0"
         style={{
           paddingLeft: 32,
           paddingRight: 32,

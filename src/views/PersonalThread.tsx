@@ -12,6 +12,7 @@ import { Composer } from "../components/Composer";
 import { Voice } from "../components/Voice";
 import { RoutedRow } from "../components/RoutedRow";
 import { formatClock } from "../lib/time";
+import { useSwipeBack } from "../hooks/useSwipeBack";
 import type { BriefingItem, Message, User } from "../types";
 
 type Props = {
@@ -44,6 +45,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
     () => new Map<string, User>(users.map((u) => [u.id, u])),
     [users],
   );
+  useSwipeBack(onBack);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageCount = thread?.kind === "personal" ? thread.messages.length : 0;
   useEffect(() => {
@@ -90,7 +92,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
       <div
         ref={scrollRef}
         data-thread-scroll="true"
-        className="flex-1 overflow-y-auto pt-5 flex flex-col gap-5 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pt-5 flex flex-col gap-5 min-h-0"
         style={{
           // Bigger horizontal padding to stay clear of iPhone display
           // rounded corner clipping zone (~25pt).

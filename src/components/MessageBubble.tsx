@@ -38,7 +38,7 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
           </span>
           <span className="text-[12px] font-semibold text-ink">{name}</span>
         </div>
-        <div className="bg-ink text-paper rounded-2xl rounded-br-md px-3.5 py-2 text-[14.5px] leading-snug">
+        <div className="bg-ink text-paper rounded-2xl rounded-br-md px-3.5 py-2 text-[14.5px] leading-snug break-words [overflow-wrap:anywhere]">
           {message.body}
         </div>
       </div>
@@ -53,7 +53,7 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
           {formatClock(message.createdAt)}
         </span>
       </div>
-      <div className="bg-card text-ink rounded-2xl rounded-bl-md px-3.5 py-2 text-[14.5px] leading-snug">
+      <div className="bg-card text-ink rounded-2xl rounded-bl-md px-3.5 py-2 text-[14.5px] leading-snug break-words [overflow-wrap:anywhere]">
         {message.body}
       </div>
     </div>

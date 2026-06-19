@@ -142,6 +142,14 @@ const opsCards: OpsCard[] = [
     sourceMessageId: "m-prev",
     sourceUserId: PARTNER_ID,
     createdAt: NOW - 18 * HOUR,
+    // Jenny tapped "?" on this one — shows the "waiting" chip on load. Posting a
+    // message in the thread auto-resolves it (you're the one being asked).
+    clarification: {
+      note: "which appt — the 6-month checkup or the ear recheck?",
+      askedByUserId: PARTNER_ID,
+      askedAt: NOW - 30 * MIN,
+      status: "open",
+    },
   },
   {
     id: "c5",

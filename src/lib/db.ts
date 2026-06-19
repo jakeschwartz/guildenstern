@@ -382,19 +382,6 @@ export async function clarifyOpsCard(
   if (error) throw error;
 }
 
-// Update a card's clarification jsonb directly (e.g. mark it resolved). Allowed
-// by the same partnership-member update policy that backs status/owner edits.
-export async function updateOpsCardClarification(
-  cardId: string,
-  clarification: unknown,
-): Promise<void> {
-  const { error } = await supabase
-    .from("ops_cards")
-    .update({ clarification })
-    .eq("id", cardId);
-  if (error) throw error;
-}
-
 export function subscribeToThreadOpsCards(
   threadId: string,
   onInsert: (row: OpsCardRow) => void,

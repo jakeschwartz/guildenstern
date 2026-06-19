@@ -4,7 +4,6 @@ import {
   dismissOpsCardConflict,
   dismissThreadSuggestion,
   requestOpsCardClarification,
-  resolveOpsCardClarification,
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
@@ -436,12 +435,10 @@ const OpsQueue = ({
                     )}
                     {waitingClarify && clarification && (
                       <ClarifyWaiting
-                        card={card}
                         clarification={clarification}
                         currentUserId={currentUserId}
                         partnerId={partnerId}
                         usersById={usersById}
-                        threadId={threadId}
                       />
                     )}
                   </li>
@@ -610,35 +607,28 @@ const ClarifyPanel = ({
 
 // ============================================================================
 // ClarifyWaiting — the "waiting on clarification" chip shown beneath a row once
-// a clarification has been asked. Names whoever still owes the answer, echoes
-// the note, and offers a one-tap "Mark clarified" to clear it (v0: manual, so
-// either partner can resolve once they've sorted it out in the thread).
+// a clarification has been asked. Names whoever still owes the answer and echoes
+// the note. No resolve button: the chip clears automatically when the person
+// being asked posts their next message in the thread (auto-resolve, handled by
+// sendMessage optimistically + a backend trigger canonically).
 // ============================================================================
 
 type ClarifyWaitingProps = {
-  card: OpsCard;
   clarification: NonNullable<OpsCard["clarification"]>;
   currentUserId: string;
   partnerId: string;
   usersById: Map<string, User>;
-  threadId: string;
 };
 
 const ClarifyWaiting = ({
-  card,
   clarification,
   currentUserId,
   partnerId,
   usersById,
-  threadId,
 }: ClarifyWaitingProps) => {
   const askedByMe = clarification.askedByUserId === currentUserId;
   const partner = usersById.get(partnerId);
   const partnerFirst = (partner?.name ?? "your partner").split(" ")[0];
-
-  const handleResolve = () => {
-    void resolveOpsCardClarification(threadId, card.id);
-  };
 
   return (
     <div className="ml-8 mt-2 rounded-lg border border-otis/25 bg-otis-tint/25 px-3 py-2 flex items-start gap-2">
@@ -647,7 +637,7 @@ const ClarifyWaiting = ({
         <div className="text-[12px] text-ink">
           {askedByMe
             ? `Waiting on ${partnerFirst} to clarify`
-            : `${partnerFirst} asked you to clarify`}
+            : `${partnerFirst} asked you to clarify — reply in the thread`}
         </div>
         {clarification.note && (
           <div className="text-[11.5px] text-muted mt-0.5 italic">
@@ -655,12 +645,6 @@ const ClarifyWaiting = ({
           </div>
         )}
       </div>
-      <button
-        onClick={handleResolve}
-        className="shrink-0 h-7 px-2.5 rounded-md border border-rule text-ink text-[11px] font-semibold tracking-tight hover:bg-card/60 transition-colors"
-      >
-        Mark clarified
-      </button>
     </div>
   );
 };

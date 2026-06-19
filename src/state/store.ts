@@ -308,9 +308,30 @@ export const sendMessage = async (threadId: string, body: string) => {
     body,
     createdAt: Date.now(),
   };
-  const threads = state.threads.map((t) =>
-    t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
-  );
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId) return t;
+    const messages = [...t.messages, optimistic];
+    // Auto-resolve clarifications: posting in the thread counts as answering
+    // whatever the *other* partner asked. The backend trigger does this
+    // canonically (and reconciles the asker's device via realtime); this is the
+    // optimistic local mirror so the replier's chip clears instantly.
+    if (t.kind === "partnership") {
+      return {
+        ...t,
+        messages,
+        opsCards: t.opsCards.map((c) =>
+          c.clarification?.status === "open" &&
+          c.clarification.askedByUserId !== state.currentUserId
+            ? {
+                ...c,
+                clarification: { ...c.clarification, status: "resolved" as const },
+              }
+            : c,
+        ),
+      };
+    }
+    return { ...t, messages };
+  });
   setState({ threads });
   try {
     await db.sendMessage(threadId, body);
@@ -620,32 +641,6 @@ export const requestOpsCardClarification = async (
     await db.clarifyOpsCard(cardId, trimmed);
   } catch (e) {
     console.error("[guildenstern] requestOpsCardClarification failed", e);
-  }
-};
-
-// Clear the "waiting on clarification" chip once it's been addressed.
-export const resolveOpsCardClarification = async (
-  threadId: string,
-  cardId: string,
-) => {
-  let next: OpsCard["clarification"] | undefined;
-  const threads = state.threads.map((t) => {
-    if (t.id !== threadId || t.kind !== "partnership") return t;
-    return {
-      ...t,
-      opsCards: t.opsCards.map((c) => {
-        if (c.id !== cardId || !c.clarification) return c;
-        next = { ...c.clarification, status: "resolved" as const };
-        return { ...c, clarification: next };
-      }),
-    };
-  });
-  setState({ threads });
-  if (state.currentUserId.startsWith("preview-") || !next) return;
-  try {
-    await db.updateOpsCardClarification(cardId, next);
-  } catch (e) {
-    console.error("[guildenstern] resolveOpsCardClarification failed", e);
   }
 };
 

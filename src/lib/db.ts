@@ -331,6 +331,7 @@ export type OpsCardRow = {
   when_label: string;
   bucket: OpsBucket;
   status: OpsCardStatus;
+  clarification: unknown | null;
   created_at: string;
 };
 
@@ -362,6 +363,34 @@ export async function updateOpsCardOwner(
   const { error } = await supabase
     .from("ops_cards")
     .update({ owner_id: ownerId })
+    .eq("id", cardId);
+  if (error) throw error;
+}
+
+// Ask the partner to clarify a card. Goes through a security-definer RPC
+// because the side effect is an *agent*-authored message in the thread, which
+// clients aren't allowed to insert directly. The RPC also stamps the card's
+// clarification jsonb; realtime reconciles both partners.
+export async function clarifyOpsCard(
+  cardId: string,
+  note: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("clarify_ops_card", {
+    p_card_id: cardId,
+    p_note: note,
+  });
+  if (error) throw error;
+}
+
+// Update a card's clarification jsonb directly (e.g. mark it resolved). Allowed
+// by the same partnership-member update policy that backs status/owner edits.
+export async function updateOpsCardClarification(
+  cardId: string,
+  clarification: unknown,
+): Promise<void> {
+  const { error } = await supabase
+    .from("ops_cards")
+    .update({ clarification })
     .eq("id", cardId);
   if (error) throw error;
 }

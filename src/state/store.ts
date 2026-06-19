@@ -112,6 +112,10 @@ const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
   sourceMessageId: row.source_message_id ?? "",
   sourceUserId: row.source_user_id ?? "",
   createdAt: new Date(row.created_at).getTime(),
+  clarification:
+    row.clarification && typeof row.clarification === "object"
+      ? (row.clarification as OpsCard["clarification"])
+      : undefined,
 });
 
 // ---------- hydration ----------
@@ -561,6 +565,88 @@ export const dismissOpsCardConflict = (threadId: string, cardId: string) => {
     };
   });
   setState({ threads });
+};
+
+const firstName = (id: string) =>
+  (state.users.find((u) => u.id === id)?.name ?? "").split(" ")[0] || "they";
+
+// Tap "?" on a card you don't understand: Otis relays a clarifying question to
+// the partner in the thread, and the card flips to "waiting on clarification".
+// Optimistic local update; in prod a security-definer RPC inserts the Otis
+// message (clients can't author agent messages) and stamps the card row, which
+// realtime then reconciles on both partners' devices.
+export const requestOpsCardClarification = async (
+  threadId: string,
+  cardId: string,
+  note: string,
+) => {
+  const thread = state.threads.find((t) => t.id === threadId);
+  if (!thread || thread.kind !== "partnership") return;
+  const card = thread.opsCards.find((c) => c.id === cardId);
+  if (!card) return;
+
+  const trimmed = note.trim();
+  const askerFirst = firstName(state.currentUserId);
+  const body =
+    `Quick one from ${askerFirst} on “${card.title}”: ` +
+    (trimmed ? trimmed : "could you clarify what's needed here?");
+
+  const clarification = {
+    note: trimmed,
+    askedByUserId: state.currentUserId,
+    askedAt: Date.now(),
+    status: "open" as const,
+  };
+  const otisMsg: Message = {
+    id: `optimistic-${Date.now()}`,
+    author: { kind: "agent" },
+    body,
+    createdAt: Date.now(),
+  };
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      messages: [...t.messages, otisMsg],
+      opsCards: t.opsCards.map((c) =>
+        c.id === cardId ? { ...c, clarification } : c,
+      ),
+    };
+  });
+  setState({ threads });
+
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.clarifyOpsCard(cardId, trimmed);
+  } catch (e) {
+    console.error("[guildenstern] requestOpsCardClarification failed", e);
+  }
+};
+
+// Clear the "waiting on clarification" chip once it's been addressed.
+export const resolveOpsCardClarification = async (
+  threadId: string,
+  cardId: string,
+) => {
+  let next: OpsCard["clarification"] | undefined;
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      opsCards: t.opsCards.map((c) => {
+        if (c.id !== cardId || !c.clarification) return c;
+        next = { ...c.clarification, status: "resolved" as const };
+        return { ...c, clarification: next };
+      }),
+    };
+  });
+  setState({ threads });
+  if (state.currentUserId.startsWith("preview-") || !next) return;
+  try {
+    await db.updateOpsCardClarification(cardId, next);
+  } catch (e) {
+    console.error("[guildenstern] resolveOpsCardClarification failed", e);
+  }
 };
 
 // ---------- React glue ----------

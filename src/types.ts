@@ -110,6 +110,17 @@ export type OpsCard = {
   // with. Surfaced as a ⚠ indicator in the Sheet row with a tap-to-expand
   // resolution menu.
   conflictWith?: Conflict;
+  // Set when someone taps "?" on a card that doesn't make sense to them. Otis
+  // relays a clarifying question into the thread (so the partner sees the ask),
+  // and the card shows a "waiting on clarification" chip until it's resolved.
+  clarification?: {
+    // What the asker said was unclear. Empty string for a one-tap ask.
+    note: string;
+    // Who flagged it (so the chip can name the other partner as the answerer).
+    askedByUserId: UserId;
+    askedAt: number;
+    status: "open" | "resolved";
+  };
 };
 
 export type Partnership = {

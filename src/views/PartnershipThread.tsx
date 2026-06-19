@@ -3,6 +3,8 @@ import {
   acceptThreadSuggestion,
   dismissOpsCardConflict,
   dismissThreadSuggestion,
+  requestOpsCardClarification,
+  resolveOpsCardClarification,
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
@@ -304,6 +306,10 @@ const OpsQueue = ({
     void setOpsCardOwner(threadId, card.id, next);
   };
 
+  // Which card (if any) currently has its inline "ask for clarification" panel
+  // open. Only one at a time — tapping "?" on another card swaps it over.
+  const [clarifyingId, setClarifyingId] = useState<string | null>(null);
+
   return (
     <div className="flex flex-col gap-5">
       {BUCKET_ORDER.map((bucket) => {
@@ -321,6 +327,9 @@ const OpsQueue = ({
                 const isYours = card.owner === currentUserId;
                 const done = card.status === "done";
                 const conflict = card.conflictWith;
+                const clarification = card.clarification;
+                const waitingClarify = clarification?.status === "open";
+                const isClarifying = clarifyingId === card.id;
                 return (
                   <li
                     key={card.id}
@@ -376,6 +385,22 @@ const OpsQueue = ({
                           </div>
                         )}
                       </button>
+                      {!done && !waitingClarify && (
+                        <button
+                          onClick={() =>
+                            setClarifyingId(isClarifying ? null : card.id)
+                          }
+                          aria-label="Ask for clarification"
+                          title="Doesn't make sense? Ask your partner"
+                          className={`shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[12px] font-semibold transition-colors ${
+                            isClarifying
+                              ? "bg-otis text-paper"
+                              : "bg-card text-muted hover:text-ink"
+                          }`}
+                        >
+                          ?
+                        </button>
+                      )}
                       <button
                         onClick={() => onRefile(card)}
                         aria-label={isYours ? "Send to partner" : "Take it"}
@@ -394,6 +419,25 @@ const OpsQueue = ({
                       <ConflictPanel
                         card={card}
                         conflict={conflict}
+                        currentUserId={currentUserId}
+                        partnerId={partnerId}
+                        usersById={usersById}
+                        threadId={threadId}
+                      />
+                    )}
+                    {isClarifying && !waitingClarify && (
+                      <ClarifyPanel
+                        card={card}
+                        partnerId={partnerId}
+                        usersById={usersById}
+                        threadId={threadId}
+                        onClose={() => setClarifyingId(null)}
+                      />
+                    )}
+                    {waitingClarify && clarification && (
+                      <ClarifyWaiting
+                        card={card}
+                        clarification={clarification}
                         currentUserId={currentUserId}
                         partnerId={partnerId}
                         usersById={usersById}
@@ -491,6 +535,132 @@ const ConflictPanel = ({
           Keep both
         </button>
       </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// ClarifyPanel — inline "this doesn't make sense, ask my partner" affordance
+// shown beneath a Sheet row when the "?" is tapped. The note is optional: a
+// one-tap "Ask" sends a generic nudge, or you can type what's unclear. On send,
+// Otis relays the question into the thread (so the partner sees the ask), and
+// the card flips to a "waiting on clarification" chip.
+// ============================================================================
+
+type ClarifyPanelProps = {
+  card: OpsCard;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+  onClose: () => void;
+};
+
+const ClarifyPanel = ({
+  card,
+  partnerId,
+  usersById,
+  threadId,
+  onClose,
+}: ClarifyPanelProps) => {
+  const [note, setNote] = useState("");
+  const partner = usersById.get(partnerId);
+  const partnerFirst = (partner?.name ?? "your partner").split(" ")[0];
+
+  const handleAsk = () => {
+    void requestOpsCardClarification(threadId, card.id, note.trim());
+    onClose();
+  };
+
+  return (
+    <div className="ml-8 mt-2 rounded-lg border border-otis/30 bg-otis-tint/40 px-3 py-2.5">
+      <div className="text-[12px] font-semibold text-ink">
+        Ask {partnerFirst} about this
+      </div>
+      <div className="text-[11.5px] text-muted mt-0.5">
+        Otis will relay your question into the thread.
+      </div>
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleAsk();
+        }}
+        autoFocus
+        placeholder="What's unclear? (optional)"
+        className="mt-2 w-full h-8 px-2.5 rounded-md border border-rule bg-paper text-[12.5px] text-ink placeholder:text-muted focus:outline-none focus:border-otis"
+      />
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <button
+          onClick={handleAsk}
+          className="h-7 px-2.5 rounded-md bg-ink text-paper text-[11.5px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
+        >
+          Ask {partnerFirst}
+        </button>
+        <button
+          onClick={onClose}
+          className="h-7 px-2.5 rounded-md text-muted text-[11.5px] font-semibold tracking-tight hover:text-ink transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// ClarifyWaiting — the "waiting on clarification" chip shown beneath a row once
+// a clarification has been asked. Names whoever still owes the answer, echoes
+// the note, and offers a one-tap "Mark clarified" to clear it (v0: manual, so
+// either partner can resolve once they've sorted it out in the thread).
+// ============================================================================
+
+type ClarifyWaitingProps = {
+  card: OpsCard;
+  clarification: NonNullable<OpsCard["clarification"]>;
+  currentUserId: string;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+};
+
+const ClarifyWaiting = ({
+  card,
+  clarification,
+  currentUserId,
+  partnerId,
+  usersById,
+  threadId,
+}: ClarifyWaitingProps) => {
+  const askedByMe = clarification.askedByUserId === currentUserId;
+  const partner = usersById.get(partnerId);
+  const partnerFirst = (partner?.name ?? "your partner").split(" ")[0];
+
+  const handleResolve = () => {
+    void resolveOpsCardClarification(threadId, card.id);
+  };
+
+  return (
+    <div className="ml-8 mt-2 rounded-lg border border-otis/25 bg-otis-tint/25 px-3 py-2 flex items-start gap-2">
+      <span className="text-otis text-[11px] leading-none mt-0.5">⏳</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[12px] text-ink">
+          {askedByMe
+            ? `Waiting on ${partnerFirst} to clarify`
+            : `${partnerFirst} asked you to clarify`}
+        </div>
+        {clarification.note && (
+          <div className="text-[11.5px] text-muted mt-0.5 italic">
+            “{clarification.note}”
+          </div>
+        )}
+      </div>
+      <button
+        onClick={handleResolve}
+        className="shrink-0 h-7 px-2.5 rounded-md border border-rule text-ink text-[11px] font-semibold tracking-tight hover:bg-card/60 transition-colors"
+      >
+        Mark clarified
+      </button>
     </div>
   );
 };

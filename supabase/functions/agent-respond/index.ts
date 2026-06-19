@@ -45,6 +45,8 @@ For multi-item bursts (3+ trackable items), use the structured echo: "Got it —
 
 For single items or questions, respond conversationally — one or two short sentences, plus a clarifying question if you need a detail (when, who, where).
 
+THREAD SETUP: sometimes the user asks you to set up / start / make / spin up a thread or a space for a topic or project — usually to coordinate it with their partner ("set up a thread for me and Jenny to plan the trip", "can we make a thread for the kitchen reno"). When they do, don't create it silently and don't just ack — propose a SHARED thread with their partner that they confirm with one tap. Set setup_thread=true, give a short setup_thread_title (2-4 words, e.g. "Italy trip"), and a one-line setup_thread_reason. Also set respond=true, kind="conversational", items=[] (do NOT extract items — the topic moves to the new thread), and write a brief ack offering to open it ("Want me to open a shared thread with Jenny for that?"). Only do this when they're clearly asking for a dedicated space for an ongoing thing (a trip, a project, a recurring topic) — not for a single quick task, which you just ack normally. You only ever propose shared threads with the partner this way; you never silently create one, and you don't make private side-threads.
+
 Return only valid JSON matching the tool schema. Do not chat outside the schema. Do not preface.`;
 
 const SYSTEM_PROMPT_PARTNERSHIP = `You are Otis — the in-conversation facilitator between two partners in a Guildenstern partnership thread. You're not a stenographer; you're a mediator who happens to spend most of his time in scribe posture. The thread is a two-person buffer between them; your job is to make the buffer work — quietly recording what counts, stepping forward when the conversation actually needs you. You only appear in shared rooms; you never see either partner's private thoughts.
@@ -208,6 +210,21 @@ Deno.serve(async (req) => {
                 description:
                   "If off_topic: one short sentence on why this belongs in its own thread. Else empty string.",
               },
+              setup_thread: {
+                type: "boolean",
+                description:
+                  "PERSONAL (Mira) THREADS ONLY. true only when the user is asking you to set up / start / make a dedicated thread for a topic or project (usually to coordinate with their partner). Default false. When true: respond=true, kind='conversational', items=[].",
+              },
+              setup_thread_title: {
+                type: "string",
+                description:
+                  "If setup_thread: a short 2-4 word title for the proposed shared thread (e.g. 'Italy trip'). Else empty string.",
+              },
+              setup_thread_reason: {
+                type: "string",
+                description:
+                  "If setup_thread: one short sentence on what the shared thread is for. Else empty string.",
+              },
             },
             required: [
               "respond",
@@ -217,6 +234,9 @@ Deno.serve(async (req) => {
               "off_topic",
               "suggested_thread_title",
               "off_topic_reason",
+              "setup_thread",
+              "setup_thread_title",
+              "setup_thread_reason",
             ],
           },
         },
@@ -257,6 +277,9 @@ Deno.serve(async (req) => {
     off_topic?: boolean;
     suggested_thread_title?: string;
     off_topic_reason?: string;
+    setup_thread?: boolean;
+    setup_thread_title?: string;
+    setup_thread_reason?: string;
   };
 
   if (!decision.respond || !decision.ack.trim()) {
@@ -330,6 +353,36 @@ Deno.serve(async (req) => {
       status: "open",
     };
   }
+
+  // Mira (personal thread): the user asked her to set up a shared thread.
+  // Same suggest-then-confirm payload, but no source message to move — it's a
+  // fresh thread the client creates against the user's partnership on accept.
+  // Only offer it when the user actually has a partner; otherwise there's no
+  // shared room to make, so Mira just acks conversationally.
+  let setupThread = false;
+  if (
+    thread.kind === "personal" &&
+    decision.setup_thread === true &&
+    !!decision.setup_thread_title?.trim() &&
+    thread.owner_id &&
+    !offTopic
+  ) {
+    const { data: memberships } = await supabase
+      .from("partnership_members")
+      .select("partnership_id")
+      .eq("user_id", thread.owner_id)
+      .limit(1);
+    if (memberships && memberships.length > 0) {
+      setupThread = true;
+      agentMsg.thread_suggestion = {
+        suggestedTitle: decision.setup_thread_title!.trim(),
+        reason: decision.setup_thread_reason?.trim() ?? "",
+        sourceMessageIds: [],
+        status: "open",
+      };
+    }
+  }
+
   const { error: insertErr } = await supabase.from("messages").insert(agentMsg);
   if (insertErr) {
     console.error("Failed to insert agent ack", insertErr);
@@ -342,6 +395,7 @@ Deno.serve(async (req) => {
       items: decision.items,
       cards_inserted: cardsInserted,
       off_topic: offTopic,
+      setup_thread: setupThread,
     }),
     { headers: { "content-type": "application/json" } },
   );

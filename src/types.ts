@@ -44,19 +44,27 @@ export type Conflict = {
   proposedWhen: string;
 };
 
-// A thread Otis proposes when a message reads as wildly off-topic for the
-// current thread. Rendered as an actionable callout under his message:
-// nothing is created until a partner taps accept (suggest-then-confirm — the
-// agent never silently spins up a thread). On accept the triggering message
-// moves into the new thread and we navigate there.
+// A shared thread an agent proposes, rendered as an actionable callout under
+// its message. Suggest-then-confirm: nothing is created until the user taps
+// accept (the agent never silently spins up a thread). Always a partnership
+// (shared) thread. Two producers:
+//   - Otis (partnership thread): a message reads as wildly off-topic, so he
+//     offers to move it into its own thread. sourceMessageIds is non-empty;
+//     on accept those messages move into the new thread.
+//   - Mira (personal thread): the user asks her to set up a shared room, so
+//     she offers to create one with the partner. sourceMessageIds is empty
+//     (nothing to move — fresh thread).
+// The card's tint follows the thread it renders in (Mira plum / Otis green),
+// so voice isn't stored here.
 export type ThreadSuggestion = {
-  // Otis's best guess at the topic, used as the new thread's title.
+  // The agent's best guess at the topic, used as the new thread's title.
   suggestedTitle: string;
-  // One-line reason Otis flagged it ("This reads like its own project, not
-  // part of the day-to-day here.").
+  // One-line reason ("This reads like its own project, not part of the
+  // day-to-day here." / "I'll spin up a shared thread for it.").
   reason: string;
   // The message(s) that triggered the suggestion — moved into the new thread
-  // on accept so the conversation literally continues there.
+  // on accept so the conversation literally continues there. Empty when the
+  // agent is creating a fresh thread on request (Mira).
   sourceMessageIds: MessageId[];
   // Lifecycle. "open" shows the accept/dismiss buttons; "accepted" collapses
   // to a tappable link into the new thread; "dismissed" hides the affordance.

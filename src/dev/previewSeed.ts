@@ -16,7 +16,8 @@ import type {
 const ME_ID = "preview-me";
 const PARTNER_ID = "preview-partner";
 const PARTNERSHIP_ID = "preview-partnership";
-const PERSONAL_THREAD_ID = "preview-personal-thread";
+export const PREVIEW_PERSONAL_THREAD_ID = "preview-personal-thread";
+const PERSONAL_THREAD_ID = PREVIEW_PERSONAL_THREAD_ID;
 export const PREVIEW_PARTNERSHIP_THREAD_ID = "preview-partnership-thread";
 
 const NOW = Date.now();
@@ -198,6 +199,37 @@ const personalThread: PersonalThread = {
   createdAt: NOW - 30 * 24 * HOUR,
 };
 
+// Mira-sets-up-a-thread preview. The user asks Mira (in their private thread)
+// to spin up a shared room with their partner; she proposes via the same
+// suggest-then-confirm card Otis uses, tinted plum. Nothing is created until
+// the user taps Start.
+const miraMessages: Message[] = [
+  {
+    id: "pm1",
+    author: { kind: "human", userId: ME_ID },
+    body: "Can you set up a thread for me and Jenny to plan the Italy trip? Don't want it tangled up with the daily stuff.",
+    createdAt: NOW - 6 * MIN,
+  },
+  {
+    id: "pm2",
+    author: { kind: "agent" },
+    body: "Good call — that's its own project. Want me to open a shared thread with Jenny for it?",
+    createdAt: NOW - 6 * MIN + 2000,
+    threadSuggestion: {
+      suggestedTitle: "Italy trip",
+      reason:
+        "I'll spin up a shared room with Jenny so flights, lodging, and budget live in one place.",
+      sourceMessageIds: [],
+      status: "open",
+    },
+  },
+];
+
+const personalThreadWithMira: PersonalThread = {
+  ...personalThread,
+  messages: miraMessages,
+};
+
 export const previewState = {
   status: "ready" as const,
   error: null,
@@ -217,4 +249,16 @@ export const previewStateSolo = {
   users: [me],
   partnerships: [],
   threads: [personalThread],
+};
+
+// Mira-thread-setup preview: the personal thread carries Mira's two proposals
+// (shared + private). A partnership exists so the shared-thread accept has a
+// partner to target. Render via #preview-mira.
+export const previewStateMira = {
+  status: "ready" as const,
+  error: null,
+  currentUserId: ME_ID,
+  users: [me, partner],
+  partnerships: [partnership],
+  threads: [personalThreadWithMira, partnershipThread],
 };

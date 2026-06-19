@@ -368,19 +368,38 @@ const patchSuggestion = (
   setState({ threads });
 };
 
-// Accept Otis's proposal: create a new partnership thread, move the triggering
-// message(s) into it, collapse the suggestion to a link, and return the new
-// thread id so the caller can navigate. In preview (no real session) this runs
-// purely against local state; in prod it persists and best-effort moves rows.
+// Accept an agent's thread proposal. Always creates a shared (partnership)
+// thread. Two shapes funnel through here:
+//   - Otis off-topic move: source is a partnership thread, and the triggering
+//     message(s) move into the new thread.
+//   - Mira on-request: source is the personal thread; the user asked her to
+//     set up a shared room with the partner. Nothing moves (sourceMessageIds
+//     is empty) — it's a fresh thread.
+// Collapses the suggestion to a link and returns the new thread id so the
+// caller can navigate. In preview (no real session) this runs purely against
+// local state; in prod it persists and best-effort moves any source rows.
 export const acceptThreadSuggestion = async (
   fromThreadId: string,
   suggestionMessageId: string,
   suggestion: ThreadSuggestion,
 ): Promise<string | null> => {
   const fromThread = state.threads.find((t) => t.id === fromThreadId);
-  if (!fromThread || fromThread.kind !== "partnership") return null;
-  const partnershipId = fromThread.partnershipId;
+  if (!fromThread) return null;
   const isPreview = state.currentUserId.startsWith("preview-");
+
+  // Resolve the partnership: reuse the source thread's when it is itself a
+  // partnership thread (Otis), else fall back to the user's first partnership
+  // (Mira, proposing a shared room from her personal thread).
+  const partnershipId =
+    fromThread.kind === "partnership"
+      ? fromThread.partnershipId
+      : state.partnerships[0]?.id ?? null;
+  if (!partnershipId) {
+    console.error(
+      "[guildenstern] acceptThreadSuggestion: no partnership for shared thread",
+    );
+    return null;
+  }
 
   let newThreadId = `local-thread-${Date.now()}`;
   let createdAt = Date.now();
@@ -399,7 +418,8 @@ export const acceptThreadSuggestion = async (
     }
   }
 
-  // Pull the triggering message(s) out of the source thread.
+  // Pull the triggering message(s) out of the source thread (Otis move).
+  // Empty set for Mira's fresh-thread case — nothing relocates.
   const moveIds = new Set(suggestion.sourceMessageIds);
   const moved = fromThread.messages.filter((m) => moveIds.has(m.id));
 

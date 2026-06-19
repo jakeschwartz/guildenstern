@@ -6,11 +6,17 @@
 // voice" framing.
 
 import { useEffect, useMemo, useRef } from "react";
-import { sendMessage, useStore } from "../state/store";
+import {
+  acceptThreadSuggestion,
+  dismissThreadSuggestion,
+  sendMessage,
+  useStore,
+} from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { Voice } from "../components/Voice";
 import { RoutedRow } from "../components/RoutedRow";
+import { ThreadSuggestionCard } from "../components/ThreadSuggestionCard";
 import { formatClock } from "../lib/time";
 import { useSwipeBack } from "../hooks/useSwipeBack";
 import type { BriefingItem, Message, User } from "../types";
@@ -109,6 +115,25 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
         )}
         {thread.messages.map((m: Message) => {
           if (m.author.kind === "agent") {
+            // Mira's "want me to set up a thread?" proposal, rendered as a
+            // confirm-card under her message (plum tint). Accept creates the
+            // thread (personal or shared) and navigates into it.
+            const suggestionCard = m.threadSuggestion ? (
+              <ThreadSuggestionCard
+                voice="mira"
+                suggestion={m.threadSuggestion}
+                onAccept={async () => {
+                  const newId = await acceptThreadSuggestion(
+                    thread.id,
+                    m.id,
+                    m.threadSuggestion!,
+                  );
+                  if (newId) onOpenThread(newId);
+                }}
+                onDismiss={() => dismissThreadSuggestion(thread.id, m.id)}
+                onOpenCreated={onOpenThread}
+              />
+            ) : null;
             if (m.briefing) {
               return (
                 <Voice
@@ -122,6 +147,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
                   <div className="mt-1">
                     {briefingToRoutedRows(m.briefing.items, onOpenThread)}
                   </div>
+                  {suggestionCard}
                 </Voice>
               );
             }
@@ -133,7 +159,9 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
                 role="concierge"
                 body={m.body}
                 timestamp={formatClock(m.createdAt)}
-              />
+              >
+                {suggestionCard}
+              </Voice>
             );
           }
           const author = usersById.get(m.author.userId) ?? null;

@@ -267,6 +267,20 @@ export async function sendMessage(
   return data as MessageRow;
 }
 
+// Relocate a message into another thread. Used when a partner accepts Otis's
+// "move this to its own thread" suggestion. RLS must permit the update (both
+// threads belong to the same partnership the caller is a member of).
+export async function updateMessageThread(
+  messageId: string,
+  threadId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("messages")
+    .update({ thread_id: threadId })
+    .eq("id", messageId);
+  if (error) throw error;
+}
+
 export function subscribeToThreadMessages(
   threadId: string,
   onInsert: (row: MessageRow) => void,

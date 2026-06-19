@@ -44,6 +44,27 @@ export type Conflict = {
   proposedWhen: string;
 };
 
+// A thread Otis proposes when a message reads as wildly off-topic for the
+// current thread. Rendered as an actionable callout under his message:
+// nothing is created until a partner taps accept (suggest-then-confirm — the
+// agent never silently spins up a thread). On accept the triggering message
+// moves into the new thread and we navigate there.
+export type ThreadSuggestion = {
+  // Otis's best guess at the topic, used as the new thread's title.
+  suggestedTitle: string;
+  // One-line reason Otis flagged it ("This reads like its own project, not
+  // part of the day-to-day here.").
+  reason: string;
+  // The message(s) that triggered the suggestion — moved into the new thread
+  // on accept so the conversation literally continues there.
+  sourceMessageIds: MessageId[];
+  // Lifecycle. "open" shows the accept/dismiss buttons; "accepted" collapses
+  // to a tappable link into the new thread; "dismissed" hides the affordance.
+  status: "open" | "accepted" | "dismissed";
+  // Set once accepted, so the collapsed link knows where to navigate.
+  createdThreadId?: ThreadId;
+};
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
@@ -57,6 +78,8 @@ export type Message = {
   // newly-tracked item's title with the existing event it collided with, so
   // the chat can render the conflict inline below the structured echo.
   conflictCallouts?: Array<{ itemTitle: string; conflict: Conflict }>;
+  // Off-topic → new-thread proposal attached to an Otis message.
+  threadSuggestion?: ThreadSuggestion;
   foldGroupId?: string;
   foldSummary?: string;
 };

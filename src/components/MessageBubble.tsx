@@ -4,18 +4,32 @@
 // Otis (the scribe in shared rooms) per UX_SPEC §1. Mira never appears
 // here — she's private-only.
 
-import type { Message, User } from "../types";
+import type { Message, ThreadSuggestion, User } from "../types";
 import { formatClock } from "../lib/time";
 import { Voice } from "./Voice";
+import { ThreadSuggestionCard } from "./ThreadSuggestionCard";
 
 type Props = {
   message: Message;
   author: User | null;
   isSelf: boolean;
+  // Partnership-thread only: Otis can attach a "move this to its own thread"
+  // proposal to his message. These wire the accept/dismiss/navigate actions.
+  onStartThread?: (suggestion: ThreadSuggestion) => void;
+  onDismissSuggestion?: () => void;
+  onOpenThread?: (threadId: string) => void;
 };
 
-export const MessageBubble = ({ message, author, isSelf }: Props) => {
+export const MessageBubble = ({
+  message,
+  author,
+  isSelf,
+  onStartThread,
+  onDismissSuggestion,
+  onOpenThread,
+}: Props) => {
   if (message.author.kind === "agent") {
+    const suggestion = message.threadSuggestion;
     return (
       <Voice
         voice="otis"
@@ -23,7 +37,16 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
         role="scribe"
         body={message.body}
         timestamp={formatClock(message.createdAt)}
-      />
+      >
+        {suggestion && (
+          <ThreadSuggestionCard
+            suggestion={suggestion}
+            onAccept={() => onStartThread?.(suggestion)}
+            onDismiss={() => onDismissSuggestion?.()}
+            onOpenCreated={(id) => onOpenThread?.(id)}
+          />
+        )}
+      </Voice>
     );
   }
 

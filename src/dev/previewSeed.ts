@@ -73,6 +73,27 @@ const messages: Message[] = [
     body: "yep",
     createdAt: NOW - 5 * MIN,
   },
+  // Off-topic burst: a whole vacation-planning project dropped into the
+  // day-to-day shared thread. Otis catches it and proposes a dedicated thread.
+  {
+    id: "m4",
+    author: { kind: "human", userId: PARTNER_ID },
+    body: "Also can we start figuring out the Italy trip — flights into Rome, where we stay, whether we bring the kids or ask my mom, and roughly the budget",
+    createdAt: NOW - 3 * MIN,
+  },
+  {
+    id: "m5",
+    author: { kind: "agent" },
+    body: "That's a bigger planning project than the day-to-day stuff here.",
+    createdAt: NOW - 3 * MIN + 2000,
+    threadSuggestion: {
+      suggestedTitle: "Italy trip",
+      reason:
+        "This reads like its own project — flights, lodging, budget — separate from the daily logistics in this thread.",
+      sourceMessageIds: ["m4"],
+      status: "open",
+    },
+  },
 ];
 
 const opsCards: OpsCard[] = [

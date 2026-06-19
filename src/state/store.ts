@@ -23,6 +23,7 @@ import type {
   PartnershipThread,
   PersonalThread,
   Thread,
+  ThreadSuggestion,
   User,
 } from "../types";
 
@@ -339,6 +340,116 @@ export const createInviteForPartnership = async (
 export const redeemInviteCode = async (code: string): Promise<string> => {
   const partnershipId = await db.redeemInvite(code);
   return partnershipId;
+};
+
+// ---------- thread suggestions (Otis off-topic → new thread) ----------
+
+const patchSuggestion = (
+  threadId: string,
+  suggestionMessageId: string,
+  patch: Partial<ThreadSuggestion>,
+) => {
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId) return t;
+    return {
+      ...t,
+      messages: t.messages.map((m) =>
+        m.id === suggestionMessageId && m.threadSuggestion
+          ? { ...m, threadSuggestion: { ...m.threadSuggestion, ...patch } }
+          : m,
+      ),
+    };
+  });
+  setState({ threads });
+};
+
+// Accept Otis's proposal: create a new partnership thread, move the triggering
+// message(s) into it, collapse the suggestion to a link, and return the new
+// thread id so the caller can navigate. In preview (no real session) this runs
+// purely against local state; in prod it persists and best-effort moves rows.
+export const acceptThreadSuggestion = async (
+  fromThreadId: string,
+  suggestionMessageId: string,
+  suggestion: ThreadSuggestion,
+): Promise<string | null> => {
+  const fromThread = state.threads.find((t) => t.id === fromThreadId);
+  if (!fromThread || fromThread.kind !== "partnership") return null;
+  const partnershipId = fromThread.partnershipId;
+  const isPreview = state.currentUserId.startsWith("preview-");
+
+  let newThreadId = `local-thread-${Date.now()}`;
+  let createdAt = Date.now();
+  if (!isPreview) {
+    try {
+      const row = await db.createPartnershipThread(
+        partnershipId,
+        suggestion.suggestedTitle,
+        false,
+      );
+      newThreadId = row.id;
+      createdAt = new Date(row.created_at).getTime();
+    } catch (e) {
+      console.error("[guildenstern] acceptThreadSuggestion: create failed", e);
+      return null;
+    }
+  }
+
+  // Pull the triggering message(s) out of the source thread.
+  const moveIds = new Set(suggestion.sourceMessageIds);
+  const moved = fromThread.messages.filter((m) => moveIds.has(m.id));
+
+  const newThread: PartnershipThread = {
+    kind: "partnership",
+    id: newThreadId,
+    partnershipId,
+    title: suggestion.suggestedTitle,
+    isDefault: false,
+    messages: moved,
+    opsCards: [],
+    agentActive: true,
+    createdAt,
+  };
+
+  const threads = state.threads.map((t) => {
+    if (t.id !== fromThreadId) return t;
+    return {
+      ...t,
+      messages: t.messages.map((m) => {
+        // Remove the moved messages; collapse the suggestion to a link.
+        if (m.id === suggestionMessageId && m.threadSuggestion) {
+          return {
+            ...m,
+            threadSuggestion: {
+              ...m.threadSuggestion,
+              status: "accepted" as const,
+              createdThreadId: newThreadId,
+            },
+          };
+        }
+        return m;
+      }).filter((m) => !moveIds.has(m.id)),
+    };
+  });
+  setState({ threads: [...threads, newThread] });
+
+  if (!isPreview) {
+    subscribeThread(newThreadId);
+    // Best-effort relocate of the moved rows; realtime on the new thread will
+    // reconcile. Failure here just leaves the message in the old thread.
+    for (const id of moveIds) {
+      db.updateMessageThread(id, newThreadId).catch((e) =>
+        console.error("[guildenstern] move message failed", id, e),
+      );
+    }
+  }
+  return newThreadId;
+};
+
+export const dismissThreadSuggestion = (
+  threadId: string,
+  suggestionMessageId: string,
+) => {
+  patchSuggestion(threadId, suggestionMessageId, { status: "dismissed" });
 };
 
 // ---------- ops cards ----------

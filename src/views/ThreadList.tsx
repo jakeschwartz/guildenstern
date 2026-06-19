@@ -90,7 +90,9 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
             <ListRow
               key={t.id}
               initials={partnerProfile?.initials ?? "·"}
-              title={partnerName ?? t.title}
+              title={
+                t.isDefault ? partnerName ?? t.title : t.title
+              }
               preview={previewText(t, usersById)}
               timestamp={formatRelative(lastActivity(t))}
               pending={yours > 0}

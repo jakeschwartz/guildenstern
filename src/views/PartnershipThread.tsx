@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  acceptThreadSuggestion,
   dismissOpsCardConflict,
+  dismissThreadSuggestion,
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
@@ -18,6 +20,9 @@ import type { Conflict, OpsBucket, OpsCard, User } from "../types";
 type Props = {
   threadId: string;
   onBack: () => void;
+  // Navigate to another thread (e.g. the new thread created when a partner
+  // accepts Otis's off-topic suggestion). Optional so preview routes can no-op.
+  onOpenThread?: (threadId: string) => void;
 };
 
 const summarize = (
@@ -54,7 +59,7 @@ const summarize = (
   return { tone: "text-mira", dot: "bg-mira", label: "Agent listening" };
 };
 
-export const PartnershipThread = ({ threadId, onBack }: Props) => {
+export const PartnershipThread = ({ threadId, onBack, onOpenThread }: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "partnership"),
   );
@@ -175,6 +180,18 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
               message={m}
               author={author}
               isSelf={isSelf}
+              onStartThread={async (suggestion) => {
+                const newId = await acceptThreadSuggestion(
+                  thread.id,
+                  m.id,
+                  suggestion,
+                );
+                if (newId) onOpenThread?.(newId);
+              }}
+              onDismissSuggestion={() =>
+                dismissThreadSuggestion(thread.id, m.id)
+              }
+              onOpenThread={onOpenThread}
             />
           );
         })}

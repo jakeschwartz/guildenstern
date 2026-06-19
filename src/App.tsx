@@ -206,7 +206,11 @@ export const App = () => {
         />
       )}
       {route.name === "partnership" && (
-        <PartnershipThread threadId={route.threadId} onBack={goInbox} />
+        <PartnershipThread
+          threadId={route.threadId}
+          onBack={goInbox}
+          onOpenThread={openThread}
+        />
       )}
 
       <Sheet open={menuOpen} onClose={() => setMenuOpen(false)}>

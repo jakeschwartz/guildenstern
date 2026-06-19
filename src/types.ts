@@ -60,6 +60,35 @@ export type Attachment = {
   height: number;
 };
 
+// A shared thread an agent proposes, rendered as an actionable callout under
+// its message. Suggest-then-confirm: nothing is created until the user taps
+// accept (the agent never silently spins up a thread). Always a partnership
+// (shared) thread. Two producers:
+//   - Otis (partnership thread): a message reads as wildly off-topic, so he
+//     offers to move it into its own thread. sourceMessageIds is non-empty;
+//     on accept those messages move into the new thread.
+//   - Mira (personal thread): the user asks her to set up a shared room, so
+//     she offers to create one with the partner. sourceMessageIds is empty
+//     (nothing to move — fresh thread).
+// The card's tint follows the thread it renders in (Mira plum / Otis green),
+// so voice isn't stored here.
+export type ThreadSuggestion = {
+  // The agent's best guess at the topic, used as the new thread's title.
+  suggestedTitle: string;
+  // One-line reason ("This reads like its own project, not part of the
+  // day-to-day here." / "I'll spin up a shared thread for it.").
+  reason: string;
+  // The message(s) that triggered the suggestion — moved into the new thread
+  // on accept so the conversation literally continues there. Empty when the
+  // agent is creating a fresh thread on request (Mira).
+  sourceMessageIds: MessageId[];
+  // Lifecycle. "open" shows the accept/dismiss buttons; "accepted" collapses
+  // to a tappable link into the new thread; "dismissed" hides the affordance.
+  status: "open" | "accepted" | "dismissed";
+  // Set once accepted, so the collapsed link knows where to navigate.
+  createdThreadId?: ThreadId;
+};
+
 export type Message = {
   id: MessageId;
   author: MessageAuthor;
@@ -81,6 +110,8 @@ export type Message = {
   // newly-tracked item's title with the existing event it collided with, so
   // the chat can render the conflict inline below the structured echo.
   conflictCallouts?: Array<{ itemTitle: string; conflict: Conflict }>;
+  // Off-topic → new-thread proposal attached to an Otis message.
+  threadSuggestion?: ThreadSuggestion;
   foldGroupId?: string;
   foldSummary?: string;
 };
@@ -108,6 +139,17 @@ export type OpsCard = {
   // with. Surfaced as a ⚠ indicator in the Sheet row with a tap-to-expand
   // resolution menu.
   conflictWith?: Conflict;
+  // Set when someone taps "?" on a card that doesn't make sense to them. Otis
+  // relays a clarifying question into the thread (so the partner sees the ask),
+  // and the card shows a "waiting on clarification" chip until it's resolved.
+  clarification?: {
+    // What the asker said was unclear. Empty string for a one-tap ask.
+    note: string;
+    // Who flagged it (so the chip can name the other partner as the answerer).
+    askedByUserId: UserId;
+    askedAt: number;
+    status: "open" | "resolved";
+  };
 };
 
 export type Partnership = {

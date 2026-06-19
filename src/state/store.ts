@@ -28,6 +28,7 @@ import type {
   PartnershipThread,
   PersonalThread,
   Thread,
+  ThreadSuggestion,
   User,
 } from "../types";
 
@@ -96,6 +97,10 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     row.briefing && typeof row.briefing === "object"
       ? (row.briefing as Message["briefing"])
       : undefined;
+  const threadSuggestion =
+    row.thread_suggestion && typeof row.thread_suggestion === "object"
+      ? (row.thread_suggestion as Message["threadSuggestion"])
+      : undefined;
   return {
     id: row.id,
     author,
@@ -108,6 +113,7 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
       : undefined,
     replyToMessageId: row.reply_to_message_id ?? undefined,
     briefing,
+    threadSuggestion,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,
   };
@@ -124,6 +130,10 @@ const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
   sourceMessageId: row.source_message_id ?? "",
   sourceUserId: row.source_user_id ?? "",
   createdAt: new Date(row.created_at).getTime(),
+  clarification:
+    row.clarification && typeof row.clarification === "object"
+      ? (row.clarification as OpsCard["clarification"])
+      : undefined,
 });
 
 // ---------- hydration ----------
@@ -385,9 +395,30 @@ export const sendMessage = async (
     attachments: attachments.length > 0 ? attachments : undefined,
     replyToMessageId: replyToMessageId ?? undefined,
   };
-  const threads = state.threads.map((t) =>
-    t.id === threadId ? { ...t, messages: [...t.messages, optimistic] } : t,
-  );
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId) return t;
+    const messages = [...t.messages, optimistic];
+    // Auto-resolve clarifications: posting in the thread counts as answering
+    // whatever the *other* partner asked. The backend trigger does this
+    // canonically (and reconciles the asker's device via realtime); this is the
+    // optimistic local mirror so the replier's chip clears instantly.
+    if (t.kind === "partnership") {
+      return {
+        ...t,
+        messages,
+        opsCards: t.opsCards.map((c) =>
+          c.clarification?.status === "open" &&
+          c.clarification.askedByUserId !== state.currentUserId
+            ? {
+                ...c,
+                clarification: { ...c.clarification, status: "resolved" as const },
+              }
+            : c,
+        ),
+      };
+    }
+    return { ...t, messages };
+  });
   setState({ threads });
   try {
     await db.sendMessage(threadId, body, context, attachments, replyToMessageId);
@@ -483,6 +514,156 @@ export const createPartnershipSpoke = async (
   return row.id;
 };
 
+// ---------- thread suggestions (Otis off-topic → new thread) ----------
+
+const patchSuggestion = (
+  threadId: string,
+  suggestionMessageId: string,
+  patch: Partial<ThreadSuggestion>,
+) => {
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId) return t;
+    return {
+      ...t,
+      messages: t.messages.map((m) =>
+        m.id === suggestionMessageId && m.threadSuggestion
+          ? { ...m, threadSuggestion: { ...m.threadSuggestion, ...patch } }
+          : m,
+      ),
+    };
+  });
+  setState({ threads });
+};
+
+// Accept an agent's thread proposal. Always creates a shared (partnership)
+// thread. Two shapes funnel through here:
+//   - Otis off-topic move: source is a partnership thread, and the triggering
+//     message(s) move into the new thread.
+//   - Mira on-request: source is the personal thread; the user asked her to
+//     set up a shared room with the partner. Nothing moves (sourceMessageIds
+//     is empty) — it's a fresh thread.
+// Collapses the suggestion to a link and returns the new thread id so the
+// caller can navigate. In preview (no real session) this runs purely against
+// local state; in prod it persists and best-effort moves any source rows.
+export const acceptThreadSuggestion = async (
+  fromThreadId: string,
+  suggestionMessageId: string,
+  suggestion: ThreadSuggestion,
+): Promise<string | null> => {
+  const fromThread = state.threads.find((t) => t.id === fromThreadId);
+  if (!fromThread) return null;
+  const isPreview = state.currentUserId.startsWith("preview-");
+
+  // Resolve the partnership: reuse the source thread's when it is itself a
+  // partnership thread (Otis), else fall back to the user's first partnership
+  // (Mira, proposing a shared room from her personal thread).
+  const partnershipId =
+    fromThread.kind === "partnership"
+      ? fromThread.partnershipId
+      : state.partnerships[0]?.id ?? null;
+  if (!partnershipId) {
+    console.error(
+      "[guildenstern] acceptThreadSuggestion: no partnership for shared thread",
+    );
+    return null;
+  }
+
+  let newThreadId = `local-thread-${Date.now()}`;
+  let createdAt = Date.now();
+  if (!isPreview) {
+    try {
+      const row = await db.createPartnershipThread(
+        partnershipId,
+        suggestion.suggestedTitle,
+        false,
+      );
+      newThreadId = row.id;
+      createdAt = new Date(row.created_at).getTime();
+    } catch (e) {
+      console.error("[guildenstern] acceptThreadSuggestion: create failed", e);
+      return null;
+    }
+  }
+
+  // Pull the triggering message(s) out of the source thread (Otis move).
+  // Empty set for Mira's fresh-thread case — nothing relocates.
+  const moveIds = new Set(suggestion.sourceMessageIds);
+  const moved = fromThread.messages.filter((m) => moveIds.has(m.id));
+
+  const newThread: PartnershipThread = {
+    kind: "partnership",
+    id: newThreadId,
+    partnershipId,
+    title: suggestion.suggestedTitle,
+    isDefault: false,
+    messages: moved,
+    opsCards: [],
+    agentActive: true,
+    createdAt,
+  };
+
+  const threads = state.threads.map((t) => {
+    if (t.id !== fromThreadId) return t;
+    return {
+      ...t,
+      messages: t.messages.map((m) => {
+        // Remove the moved messages; collapse the suggestion to a link.
+        if (m.id === suggestionMessageId && m.threadSuggestion) {
+          return {
+            ...m,
+            threadSuggestion: {
+              ...m.threadSuggestion,
+              status: "accepted" as const,
+              createdThreadId: newThreadId,
+            },
+          };
+        }
+        return m;
+      }).filter((m) => !moveIds.has(m.id)),
+    };
+  });
+  setState({ threads: [...threads, newThread] });
+
+  if (!isPreview) {
+    subscribeThread(newThreadId);
+    // Best-effort relocate of the moved rows; a full rehydrate reconciles.
+    // Failure here just leaves the message in the old thread.
+    for (const id of moveIds) {
+      db.updateMessageThread(id, newThreadId).catch((e) =>
+        console.error("[guildenstern] move message failed", id, e),
+      );
+    }
+    // Persist the accepted state onto the agent message so the proposal doesn't
+    // re-offer (and re-create the thread) after a rehydrate.
+    db.updateMessageThreadSuggestion(suggestionMessageId, {
+      ...suggestion,
+      status: "accepted",
+      createdThreadId: newThreadId,
+    }).catch((e) =>
+      console.error("[guildenstern] persist accepted suggestion failed", e),
+    );
+  }
+  return newThreadId;
+};
+
+export const dismissThreadSuggestion = (
+  threadId: string,
+  suggestionMessageId: string,
+) => {
+  patchSuggestion(threadId, suggestionMessageId, { status: "dismissed" });
+  if (state.currentUserId.startsWith("preview-")) return;
+  // Persist so the proposal stays dismissed across rehydrates.
+  const thread = state.threads.find((t) => t.id === threadId);
+  const msg = thread?.messages.find((m) => m.id === suggestionMessageId);
+  if (msg?.threadSuggestion) {
+    db.updateMessageThreadSuggestion(suggestionMessageId, {
+      ...msg.threadSuggestion,
+    }).catch((e) =>
+      console.error("[guildenstern] persist dismissed suggestion failed", e),
+    );
+  }
+};
+
 // ---------- ops cards ----------
 
 // Optimistic local update + persist. Realtime UPDATE will reconcile, but we
@@ -562,6 +743,62 @@ export const refreshCalendarEvents = async (): Promise<void> => {
     setState({ calendarEvents: events, calendarEventsFetchedAt: Date.now() });
   } catch (e) {
     console.error("[guildenstern] refreshCalendarEvents failed", e);
+  }
+};
+
+const firstName = (id: string) =>
+  (state.users.find((u) => u.id === id)?.name ?? "").split(" ")[0] || "they";
+
+// Tap "?" on a card you don't understand: Otis relays a clarifying question to
+// the partner in the thread, and the card flips to "waiting on clarification".
+// Optimistic local update; in prod a security-definer RPC inserts the Otis
+// message (clients can't author agent messages) and stamps the card row, which
+// realtime then reconciles on both partners' devices.
+export const requestOpsCardClarification = async (
+  threadId: string,
+  cardId: string,
+  note: string,
+) => {
+  const thread = state.threads.find((t) => t.id === threadId);
+  if (!thread || thread.kind !== "partnership") return;
+  const card = thread.opsCards.find((c) => c.id === cardId);
+  if (!card) return;
+
+  const trimmed = note.trim();
+  const askerFirst = firstName(state.currentUserId);
+  const body =
+    `Quick one from ${askerFirst} on “${card.title}”: ` +
+    (trimmed ? trimmed : "could you clarify what's needed here?");
+
+  const clarification = {
+    note: trimmed,
+    askedByUserId: state.currentUserId,
+    askedAt: Date.now(),
+    status: "open" as const,
+  };
+  const otisMsg: Message = {
+    id: `optimistic-${Date.now()}`,
+    author: { kind: "agent" },
+    body,
+    createdAt: Date.now(),
+  };
+  const threads = state.threads.map((t) => {
+    if (t.id !== threadId || t.kind !== "partnership") return t;
+    return {
+      ...t,
+      messages: [...t.messages, otisMsg],
+      opsCards: t.opsCards.map((c) =>
+        c.id === cardId ? { ...c, clarification } : c,
+      ),
+    };
+  });
+  setState({ threads });
+
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.clarifyOpsCard(cardId, trimmed);
+  } catch (e) {
+    console.error("[guildenstern] requestOpsCardClarification failed", e);
   }
 };
 

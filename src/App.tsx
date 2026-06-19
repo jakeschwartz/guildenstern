@@ -28,7 +28,9 @@ import {
 import {
   previewState,
   previewStateSolo,
+  previewStateMira,
   PREVIEW_PARTNERSHIP_THREAD_ID,
+  PREVIEW_PERSONAL_THREAD_ID,
 } from "./dev/previewSeed";
 
 // Home is now the inbox per v4 spec §0. Tapping into Mira's pinned row opens
@@ -63,6 +65,8 @@ if (previewHash === "ops" || previewHash === "app") {
   seedDevState(previewState);
 } else if (previewHash === "inbox-solo") {
   seedDevState(previewStateSolo);
+} else if (previewHash === "mira") {
+  seedDevState(previewStateMira);
 }
 
 // Fully navigable demo shell against seeded data — for screen-share demos.
@@ -108,6 +112,32 @@ const PreviewApp = () => {
   );
 };
 
+// Hash route: Mira's personal thread with her shared-thread proposals. Stateful
+// so accepting a proposal navigates into the freshly-created shared thread,
+// then back. Bypasses auth + hydration.
+const PreviewMira = () => {
+  const [openId, setOpenId] = useState<string>(PREVIEW_PERSONAL_THREAD_ID);
+  const threads = useStore((s) => s.threads);
+  const open = threads.find((t) => t.id === openId);
+  return (
+    <Frame>
+      {open?.kind === "partnership" ? (
+        <PartnershipThread
+          threadId={openId}
+          onBack={() => setOpenId(PREVIEW_PERSONAL_THREAD_ID)}
+          onOpenThread={setOpenId}
+        />
+      ) : (
+        <PersonalThread
+          threadId={PREVIEW_PERSONAL_THREAD_ID}
+          onBack={() => {}}
+          onOpenThread={setOpenId}
+        />
+      )}
+    </Frame>
+  );
+};
+
 export const App = () => {
   // Hash route: fully navigable demo (inbox ↔ threads, working back button).
   if (previewHash === "app") {
@@ -125,6 +155,9 @@ export const App = () => {
         />
       </Frame>
     );
+  }
+  if (previewHash === "mira") {
+    return <PreviewMira />;
   }
   // Hash route: render the inbox with a solo (no-partnership) seed so we can
   // see Mira-only state + the "No partnerships yet" empty hint.
@@ -284,7 +317,11 @@ export const App = () => {
         />
       )}
       {route.name === "partnership" && (
-        <PartnershipThread threadId={route.threadId} onBack={goInbox} />
+        <PartnershipThread
+          threadId={route.threadId}
+          onBack={goInbox}
+          onOpenThread={openThread}
+        />
       )}
 
       <Sheet

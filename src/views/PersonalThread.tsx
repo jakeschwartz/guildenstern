@@ -6,12 +6,19 @@
 // voice" framing.
 
 import { useEffect, useMemo, useRef } from "react";
-import { sendMessage, useStore } from "../state/store";
+import {
+  acceptThreadSuggestion,
+  dismissThreadSuggestion,
+  sendMessage,
+  useStore,
+} from "../state/store";
 import { MessageBubble } from "../components/MessageBubble";
 import { Composer } from "../components/Composer";
 import { Voice } from "../components/Voice";
 import { RoutedRow } from "../components/RoutedRow";
+import { ThreadSuggestionCard } from "../components/ThreadSuggestionCard";
 import { formatClock } from "../lib/time";
+import { useSwipeBack } from "../hooks/useSwipeBack";
 import type { BriefingItem, Message, User } from "../types";
 
 type Props = {
@@ -44,6 +51,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
     () => new Map<string, User>(users.map((u) => [u.id, u])),
     [users],
   );
+  useSwipeBack(onBack);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageCount = thread?.kind === "personal" ? thread.messages.length : 0;
   useEffect(() => {
@@ -96,7 +104,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
       <div
         ref={scrollRef}
         data-thread-scroll="true"
-        className="flex-1 overflow-y-auto pt-5 flex flex-col gap-5 min-h-0"
+        className="flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none pt-5 flex flex-col gap-5 min-h-0"
         style={{
           // Bigger horizontal padding to stay clear of iPhone display
           // rounded corner clipping zone (~25pt).
@@ -112,6 +120,25 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
         )}
         {thread.messages.map((m: Message) => {
           if (m.author.kind === "agent") {
+            // Mira's "want me to set up a thread?" proposal, rendered as a
+            // confirm-card under her message (plum tint). Accept creates the
+            // thread (personal or shared) and navigates into it.
+            const suggestionCard = m.threadSuggestion ? (
+              <ThreadSuggestionCard
+                voice="mira"
+                suggestion={m.threadSuggestion}
+                onAccept={async () => {
+                  const newId = await acceptThreadSuggestion(
+                    thread.id,
+                    m.id,
+                    m.threadSuggestion!,
+                  );
+                  if (newId) onOpenThread(newId);
+                }}
+                onDismiss={() => dismissThreadSuggestion(thread.id, m.id)}
+                onOpenCreated={onOpenThread}
+              />
+            ) : null;
             if (m.briefing) {
               return (
                 <Voice
@@ -125,6 +152,7 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
                   <div className="mt-1">
                     {briefingToRoutedRows(m.briefing.items, onOpenThread)}
                   </div>
+                  {suggestionCard}
                 </Voice>
               );
             }
@@ -136,7 +164,9 @@ export const PersonalThread = ({ threadId, onBack, onOpenThread }: Props) => {
                 role="concierge"
                 body={m.body}
                 timestamp={formatClock(m.createdAt)}
-              />
+              >
+                {suggestionCard}
+              </Voice>
             );
           }
           const author = usersById.get(m.author.userId) ?? null;

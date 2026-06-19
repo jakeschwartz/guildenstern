@@ -228,6 +228,7 @@ export type MessageRow = {
   author_user_id: string | null;
   body: string;
   briefing: unknown | null;
+  thread_suggestion: unknown | null;
   fold_group_id: string | null;
   fold_summary: string | null;
   created_at: string;
@@ -275,6 +276,34 @@ export async function sendMessage(
     .single();
   if (error) throw error;
   return data as MessageRow;
+}
+
+// Relocate a message into another thread. Used when a partner accepts Otis's
+// "move this to its own thread" suggestion. RLS must permit the update (both
+// threads belong to the same partnership the caller is a member of).
+export async function updateMessageThread(
+  messageId: string,
+  threadId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("messages")
+    .update({ thread_id: threadId })
+    .eq("id", messageId);
+  if (error) throw error;
+}
+
+// Persist the lifecycle of an Otis thread-suggestion (accepted/dismissed) onto
+// the agent message that carried it, so the proposal doesn't re-offer after a
+// rehydrate. Payload is the full client-shape ThreadSuggestion object.
+export async function updateMessageThreadSuggestion(
+  messageId: string,
+  suggestion: unknown,
+): Promise<void> {
+  const { error } = await supabase
+    .from("messages")
+    .update({ thread_suggestion: suggestion })
+    .eq("id", messageId);
+  if (error) throw error;
 }
 
 export function subscribeToThreadMessages(
@@ -341,6 +370,7 @@ export type OpsCardRow = {
   when_label: string;
   bucket: OpsBucket;
   status: OpsCardStatus;
+  clarification: unknown | null;
   created_at: string;
 };
 
@@ -376,6 +406,21 @@ export async function updateOpsCardOwner(
     .from("ops_cards")
     .update({ owner_id: ownerId, status: "pending" })
     .eq("id", cardId);
+  if (error) throw error;
+}
+
+// Ask the partner to clarify a card. Goes through a security-definer RPC
+// because the side effect is an *agent*-authored message in the thread, which
+// clients aren't allowed to insert directly. The RPC also stamps the card's
+// clarification jsonb; realtime reconciles both partners.
+export async function clarifyOpsCard(
+  cardId: string,
+  note: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("clarify_ops_card", {
+    p_card_id: cardId,
+    p_note: note,
+  });
   if (error) throw error;
 }
 

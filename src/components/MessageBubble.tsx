@@ -5,16 +5,22 @@
 // here — she's private-only.
 
 import { useState } from "react";
-import type { Attachment, Message, User } from "../types";
+import type { Attachment, Message, ThreadSuggestion, User } from "../types";
 import { formatClock } from "../lib/time";
 import { attachmentUrl } from "../lib/attachments";
 import { Voice } from "./Voice";
 import { PhotoViewer } from "./PhotoViewer";
+import { ThreadSuggestionCard } from "./ThreadSuggestionCard";
 
 type Props = {
   message: Message;
   author: User | null;
   isSelf: boolean;
+  // Partnership-thread only: Otis can attach a "move this to its own thread"
+  // proposal to his message. These wire the accept/dismiss/navigate actions.
+  onStartThread?: (suggestion: ThreadSuggestion) => void;
+  onDismissSuggestion?: () => void;
+  onOpenThread?: (threadId: string) => void;
 };
 
 // One image preview in a message bubble. Aspect-correct sizing so the
@@ -49,10 +55,18 @@ const AttachmentImage = ({
   );
 };
 
-export const MessageBubble = ({ message, author, isSelf }: Props) => {
+export const MessageBubble = ({
+  message,
+  author,
+  isSelf,
+  onStartThread,
+  onDismissSuggestion,
+  onOpenThread,
+}: Props) => {
   const [viewing, setViewing] = useState<Attachment | null>(null);
 
   if (message.author.kind === "agent") {
+    const suggestion = message.threadSuggestion;
     return (
       <Voice
         voice="otis"
@@ -60,7 +74,16 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
         role="scribe"
         body={message.body}
         timestamp={formatClock(message.createdAt)}
-      />
+      >
+        {suggestion && (
+          <ThreadSuggestionCard
+            suggestion={suggestion}
+            onAccept={() => onStartThread?.(suggestion)}
+            onDismiss={() => onDismissSuggestion?.()}
+            onOpenCreated={(id) => onOpenThread?.(id)}
+          />
+        )}
+      </Voice>
     );
   }
 
@@ -71,7 +94,9 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
   const bubble = (
     <div className={isSelf ? "ml-auto" : ""}>
       {attachments.length > 0 && (
-        <div className={`flex flex-col gap-1.5 ${isSelf ? "items-end" : "items-start"} ${hasText ? "mb-1.5" : ""}`}>
+        <div
+          className={`flex flex-col gap-1.5 ${isSelf ? "items-end" : "items-start"} ${hasText ? "mb-1.5" : ""}`}
+        >
           {attachments.map((a, i) => (
             <AttachmentImage
               key={i}
@@ -87,7 +112,7 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
             isSelf
               ? "bg-ink text-paper rounded-2xl rounded-br-md"
               : "bg-card text-ink rounded-2xl rounded-bl-md"
-          } px-4 py-2.5 text-[17px] leading-snug ${isSelf ? "ml-auto" : ""}`}
+          } px-4 py-2.5 text-[17px] leading-snug break-words [overflow-wrap:anywhere] ${isSelf ? "ml-auto" : ""}`}
         >
           {message.body}
         </div>
@@ -108,10 +133,7 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
           {bubble}
         </div>
         {viewing && (
-          <PhotoViewer
-            attachment={viewing}
-            onClose={() => setViewing(null)}
-          />
+          <PhotoViewer attachment={viewing} onClose={() => setViewing(null)} />
         )}
       </>
     );
@@ -129,10 +151,7 @@ export const MessageBubble = ({ message, author, isSelf }: Props) => {
         {bubble}
       </div>
       {viewing && (
-        <PhotoViewer
-          attachment={viewing}
-          onClose={() => setViewing(null)}
-        />
+        <PhotoViewer attachment={viewing} onClose={() => setViewing(null)} />
       )}
     </>
   );

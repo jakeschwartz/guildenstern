@@ -45,6 +45,8 @@ For multi-item bursts (3+ trackable items), use the structured echo: "Got it —
 
 For single items or questions, respond conversationally — one or two short sentences, plus a clarifying question if you need a detail (when, who, where).
 
+THREAD SETUP: sometimes the user asks you to set up / start / make / spin up a thread or a space for a topic or project — usually to coordinate it with their partner ("set up a thread for me and Jenny to plan the trip", "can we make a thread for the kitchen reno"). When they do, don't create it silently and don't just ack — propose a SHARED thread with their partner that they confirm with one tap. Set setup_thread=true, give a short setup_thread_title (2-4 words, e.g. "Italy trip"), and a one-line setup_thread_reason. Also set respond=true, kind="conversational", items=[] (do NOT extract items — the topic moves to the new thread), and write a brief ack offering to open it ("Want me to open a shared thread with Jenny for that?"). Only do this when they're clearly asking for a dedicated space for an ongoing thing (a trip, a project, a recurring topic) — not for a single quick task, which you just ack normally. You only ever propose shared threads with the partner this way; you never silently create one, and you don't make private side-threads.
+
 Return only valid JSON matching the tool schema. Do not chat outside the schema. Do not preface.`;
 
 const SYSTEM_PROMPT_PARTNERSHIP = `You are Otis — the silent intermediary working behind a conversation between two partners. The thread belongs to the two humans. You read everything, track what needs tracking, and stay out of the way. Your presence shows in the app as a quiet indicator on each message you've processed — not as a voice in the room.
@@ -60,6 +62,8 @@ B. CLARIFY. The ONLY time you interject on your own: an item is too ambiguous to
 C. ADDRESSED. The message speaks to you by name ("Otis, ...") with a question that needs an answer. Reply as a passive intermediary: brief, flat, factual — one sentence if possible. If it's an instruction you can fulfill by tracking items, do it silently (respond=false; the indicator is the confirmation). Never volunteer opinions, suggestions, or follow-ups in this room — the partners have a separate surface for real conversations with you.
 
 D. EVERYTHING ELSE — conversation, emotion, logistics chatter between the partners ("love you", "running late", "ok", questions they're asking each other) — is not yours. respond=false, items=[].
+
+OFF-TOPIC JUDGMENT: occasionally a message opens a whole separate project or subject that doesn't belong in this thread's day-to-day flow — planning a vacation, a home renovation, a big purchase decision — dropped into a thread that's otherwise about daily logistics. When you are confident a message is WILDLY off-topic for this thread and deserves its own dedicated thread, set off_topic=true, give a short suggested_thread_title (2-4 words, e.g. "Italy trip"), and a one-line off_topic_reason. Be conservative — this is rare. Only flag clear, high-confidence cases, never an ordinary tangent or a single stray item. When you flag off_topic: set respond=true, kind="conversational", items=[] (do NOT extract items into this thread — they'll be handled once the message is moved), and write a brief ack noting it feels like its own thing (do NOT echo the items). You never create the thread yourself — you only propose; the partners confirm.
 
 For each item, also extract:
   - title: concise, but PRESERVE the WHO and WHERE — names of people, places, organizations, specific things. The partner has no other context for this item; the title is all they'll see at a glance. If Jenny says "schedule dinner with the Petersens next Friday", the title is "Schedule dinner with the Petersens" — NOT "Schedule dinner." Filler is "let's", "can you", "I think we should" etc. WHO ("with the Petersens", "for Eli", "to my mom"), WHERE ("at CVS", "at the school"), and what-specifically ("the blue bin", "the contractor we met") are NOT filler — they're the item. Keep them. Strip articles and politeness, keep the proper nouns and concrete referents. Max 6 items.
@@ -258,8 +262,49 @@ Deno.serve(async (req) => {
                   required: ["title", "when_label", "bucket"],
                 },
               },
+              off_topic: {
+                type: "boolean",
+                description:
+                  "PARTNERSHIP THREADS ONLY. true only when the latest message is wildly off-topic for this thread — a distinct project/subject deserving its own thread. Be conservative; default false. When true: respond=true, kind='conversational', items=[].",
+              },
+              suggested_thread_title: {
+                type: "string",
+                description:
+                  "If off_topic: a short 2-4 word title for the proposed new thread (e.g. 'Italy trip'). Else empty string.",
+              },
+              off_topic_reason: {
+                type: "string",
+                description:
+                  "If off_topic: one short sentence on why this belongs in its own thread. Else empty string.",
+              },
+              setup_thread: {
+                type: "boolean",
+                description:
+                  "PERSONAL (Mira) THREADS ONLY. true only when the user is asking you to set up / start / make a dedicated thread for a topic or project (usually to coordinate with their partner). Default false. When true: respond=true, kind='conversational', items=[].",
+              },
+              setup_thread_title: {
+                type: "string",
+                description:
+                  "If setup_thread: a short 2-4 word title for the proposed shared thread (e.g. 'Italy trip'). Else empty string.",
+              },
+              setup_thread_reason: {
+                type: "string",
+                description:
+                  "If setup_thread: one short sentence on what the shared thread is for. Else empty string.",
+              },
             },
-            required: ["respond", "kind", "ack", "items"],
+            required: [
+              "respond",
+              "kind",
+              "ack",
+              "items",
+              "off_topic",
+              "suggested_thread_title",
+              "off_topic_reason",
+              "setup_thread",
+              "setup_thread_title",
+              "setup_thread_reason",
+            ],
           },
         },
       ],
@@ -297,6 +342,12 @@ Deno.serve(async (req) => {
     kind: "burst" | "conversational";
     items: BurstItem[];
     ack: string;
+    off_topic?: boolean;
+    suggested_thread_title?: string;
+    off_topic_reason?: string;
+    setup_thread?: boolean;
+    setup_thread_title?: string;
+    setup_thread_reason?: string;
   };
 
   // Insert ops_cards whenever items were extracted — INDEPENDENT of whether
@@ -366,15 +417,62 @@ Deno.serve(async (req) => {
   }
 
   // Insert the reply as an agent message in the same thread. Preserve the
-  // context so otis_chat responses stay in that surface and don't leak
-  // into the main chat.
-  const { error: insertErr } = await supabase.from("messages").insert({
+  // context (mine) so otis_chat responses stay in that surface, AND attach a
+  // thread-suggestion payload (laptop) when Otis flags the message off-topic
+  // or Mira is asked to set up a shared thread. The passive-silence gate
+  // above already let this through because the off-topic / setup-thread
+  // prompt paths explicitly set respond=true.
+  const agentMsg: Record<string, unknown> = {
     thread_id: msg.thread_id,
     author_kind: "agent",
     author_user_id: null,
     body: decision.ack.trim(),
     context: msg.context ?? "main",
-  });
+  };
+
+  // Otis off-topic move (partnership): propose a dedicated thread; on accept
+  // the client moves the triggering message into it. Suggest-only.
+  const offTopic =
+    thread.kind === "partnership" &&
+    decision.off_topic === true &&
+    !!decision.suggested_thread_title?.trim();
+  if (offTopic) {
+    agentMsg.thread_suggestion = {
+      suggestedTitle: decision.suggested_thread_title!.trim(),
+      reason: decision.off_topic_reason?.trim() ?? "",
+      sourceMessageIds: [msg.id],
+      status: "open",
+    };
+  }
+
+  // Mira setup-thread (personal): the user asked her to spin up a shared
+  // thread. Same suggest-then-confirm payload; nothing to move (fresh thread).
+  // Only offered when the user actually has a partner to share with.
+  let setupThread = false;
+  if (
+    thread.kind === "personal" &&
+    decision.setup_thread === true &&
+    !!decision.setup_thread_title?.trim() &&
+    thread.owner_id &&
+    !offTopic
+  ) {
+    const { data: memberships } = await supabase
+      .from("partnership_members")
+      .select("partnership_id")
+      .eq("user_id", thread.owner_id)
+      .limit(1);
+    if (memberships && memberships.length > 0) {
+      setupThread = true;
+      agentMsg.thread_suggestion = {
+        suggestedTitle: decision.setup_thread_title!.trim(),
+        reason: decision.setup_thread_reason?.trim() ?? "",
+        sourceMessageIds: [],
+        status: "open",
+      };
+    }
+  }
+
+  const { error: insertErr } = await supabase.from("messages").insert(agentMsg);
   if (insertErr) {
     console.error("Failed to insert agent ack", insertErr);
     return new Response("insert failed", { status: 500 });
@@ -385,6 +483,8 @@ Deno.serve(async (req) => {
       silent: false,
       items: decision.items,
       cards_inserted: cardsInserted,
+      off_topic: offTopic,
+      setup_thread: setupThread,
     }),
     { headers: { "content-type": "application/json" } },
   );

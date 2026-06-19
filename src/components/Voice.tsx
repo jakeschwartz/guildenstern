@@ -82,7 +82,7 @@ export const Voice = ({
         </div>
       )}
       {body && (
-        <div className="text-[14.5px] leading-snug text-ink whitespace-pre-line">
+        <div className="text-[14.5px] leading-snug text-ink whitespace-pre-line break-words [overflow-wrap:anywhere]">
           {body}
         </div>
       )}

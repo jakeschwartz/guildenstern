@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  acceptThreadSuggestion,
   dismissOpsCardConflict,
+  dismissThreadSuggestion,
   refreshCalendarEvents,
+  requestOpsCardClarification,
   sendMessage,
   setOpsCardOwner,
   setOpsCardStatus,
@@ -34,6 +37,9 @@ import type {
 type Props = {
   threadId: string;
   onBack: () => void;
+  // Navigate to another thread — e.g. the new thread created when a partner
+  // accepts Otis's off-topic suggestion. Optional so preview routes can no-op.
+  onOpenThread?: (threadId: string) => void;
 };
 
 const summarize = (
@@ -122,7 +128,7 @@ const PANE_ITEMS = 0;
 const PANE_CHAT = 1;
 const PANE_CONTEXT = 2;
 
-export const PartnershipThread = ({ threadId, onBack }: Props) => {
+export const PartnershipThread = ({ threadId, onBack, onOpenThread }: Props) => {
   const thread = useStore((s) =>
     s.threads.find((t) => t.id === threadId && t.kind === "partnership"),
   );
@@ -517,6 +523,18 @@ export const PartnershipThread = ({ threadId, onBack }: Props) => {
                     message={m}
                     author={author}
                     isSelf={isSelf}
+                    onStartThread={async (suggestion) => {
+                      const newId = await acceptThreadSuggestion(
+                        thread.id,
+                        m.id,
+                        suggestion,
+                      );
+                      if (newId) onOpenThread?.(newId);
+                    }}
+                    onDismissSuggestion={() =>
+                      dismissThreadSuggestion(thread.id, m.id)
+                    }
+                    onOpenThread={onOpenThread}
                   />
                 </LongPress>
                 {/* Tapbacks on this message. Tap a pill to open the picker
@@ -1158,6 +1176,9 @@ const OpsCardRow = ({
   const done = status === "done";
   const accepted = status === "accepted";
   const conflict = card.conflictWith;
+  const clarification = card.clarification;
+  const waitingClarify = clarification?.status === "open";
+  const [clarifyOpen, setClarifyOpen] = useState(false);
 
   const onAccept = () => {
     void setOpsCardStatus(threadId, card.id, "accepted");
@@ -1275,6 +1296,18 @@ const OpsCardRow = ({
               Reopen
             </button>
           )}
+          {/* "?" — ask the partner to clarify a card you don't understand.
+              Hidden once a clarification is already pending or done. */}
+          {!waitingClarify && !done && (
+            <button
+              onClick={() => setClarifyOpen((v) => !v)}
+              aria-label="Ask for clarification"
+              title="Ask your partner about this"
+              className="h-6 w-6 rounded-md flex items-center justify-center text-[12px] font-semibold text-muted hover:text-ink transition-colors"
+            >
+              ?
+            </button>
+          )}
           {/* Refile pill is the always-available ownership toggle. Shown for
               non-yours cards so the partner can take ownership, and as a
               quiet secondary on yours-pending / yours-done. */}
@@ -1305,7 +1338,135 @@ const OpsCardRow = ({
           threadId={threadId}
         />
       )}
+      {clarifyOpen && !waitingClarify && (
+        <ClarifyPanel
+          card={card}
+          partnerId={partnerId}
+          usersById={usersById}
+          threadId={threadId}
+          onClose={() => setClarifyOpen(false)}
+        />
+      )}
+      {waitingClarify && clarification && (
+        <ClarifyWaiting
+          clarification={clarification}
+          currentUserId={currentUserId}
+          partnerId={partnerId}
+          usersById={usersById}
+        />
+      )}
     </li>
+  );
+};
+
+// ============================================================================
+// ClarifyPanel — inline "this doesn't make sense, ask my partner" affordance.
+// One-tap "Ask" sends a generic nudge, or type what's unclear. On send Otis
+// relays the question into the thread and the card flips to a "waiting on
+// clarification" chip.
+// ============================================================================
+
+type ClarifyPanelProps = {
+  card: OpsCard;
+  partnerId: string;
+  usersById: Map<string, User>;
+  threadId: string;
+  onClose: () => void;
+};
+
+const ClarifyPanel = ({
+  card,
+  partnerId,
+  usersById,
+  threadId,
+  onClose,
+}: ClarifyPanelProps) => {
+  const [note, setNote] = useState("");
+  const partner = usersById.get(partnerId);
+  const partnerFirst = (partner?.name ?? "your partner").split(" ")[0];
+
+  const handleAsk = () => {
+    void requestOpsCardClarification(threadId, card.id, note.trim());
+    onClose();
+  };
+
+  return (
+    <div className="ml-8 mt-2 rounded-lg border border-otis/30 bg-otis-tint/40 px-3 py-2.5">
+      <div className="text-[12px] font-semibold text-ink">
+        Ask {partnerFirst} about this
+      </div>
+      <div className="text-[11.5px] text-muted mt-0.5">
+        Otis will relay your question into the thread.
+      </div>
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleAsk();
+        }}
+        autoFocus
+        placeholder="What's unclear? (optional)"
+        className="mt-2 w-full h-8 px-2.5 rounded-md border border-rule bg-paper text-[12.5px] text-ink placeholder:text-muted focus:outline-none focus:border-otis"
+      />
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <button
+          onClick={handleAsk}
+          className="h-7 px-2.5 rounded-md bg-ink text-paper text-[11.5px] font-semibold tracking-tight hover:opacity-90 transition-opacity"
+        >
+          Ask {partnerFirst}
+        </button>
+        <button
+          onClick={onClose}
+          className="h-7 px-2.5 rounded-md text-muted text-[11.5px] font-semibold tracking-tight hover:text-ink transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// ClarifyWaiting — "waiting on clarification" chip shown once a clarification
+// has been asked. Names whoever still owes the answer + echoes the note. No
+// resolve button: it auto-clears when the asked partner posts their next
+// message (optimistic in sendMessage + a backend trigger canonically).
+// ============================================================================
+
+type ClarifyWaitingProps = {
+  clarification: NonNullable<OpsCard["clarification"]>;
+  currentUserId: string;
+  partnerId: string;
+  usersById: Map<string, User>;
+};
+
+const ClarifyWaiting = ({
+  clarification,
+  currentUserId,
+  partnerId,
+  usersById,
+}: ClarifyWaitingProps) => {
+  const askedByMe = clarification.askedByUserId === currentUserId;
+  const partner = usersById.get(partnerId);
+  const partnerFirst = (partner?.name ?? "your partner").split(" ")[0];
+
+  return (
+    <div className="ml-8 mt-2 rounded-lg border border-otis/25 bg-otis-tint/25 px-3 py-2 flex items-start gap-2">
+      <span className="text-otis text-[11px] leading-none mt-0.5">⏳</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[12px] text-ink">
+          {askedByMe
+            ? `Waiting on ${partnerFirst} to clarify`
+            : `${partnerFirst} asked you to clarify — reply in the thread`}
+        </div>
+        {clarification.note && (
+          <div className="text-[11.5px] text-muted mt-0.5 italic">
+            “{clarification.note}”
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

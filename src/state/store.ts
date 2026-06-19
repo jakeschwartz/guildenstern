@@ -85,12 +85,17 @@ const messageRowToMessage = (row: db.MessageRow): Message => {
     row.briefing && typeof row.briefing === "object"
       ? (row.briefing as Message["briefing"])
       : undefined;
+  const threadSuggestion =
+    row.thread_suggestion && typeof row.thread_suggestion === "object"
+      ? (row.thread_suggestion as Message["threadSuggestion"])
+      : undefined;
   return {
     id: row.id,
     author,
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
     briefing,
+    threadSuggestion,
     foldGroupId: row.fold_group_id ?? undefined,
     foldSummary: row.fold_summary ?? undefined,
   };
@@ -434,13 +439,22 @@ export const acceptThreadSuggestion = async (
 
   if (!isPreview) {
     subscribeThread(newThreadId);
-    // Best-effort relocate of the moved rows; realtime on the new thread will
-    // reconcile. Failure here just leaves the message in the old thread.
+    // Best-effort relocate of the moved rows; a full rehydrate reconciles.
+    // Failure here just leaves the message in the old thread.
     for (const id of moveIds) {
       db.updateMessageThread(id, newThreadId).catch((e) =>
         console.error("[guildenstern] move message failed", id, e),
       );
     }
+    // Persist the accepted state onto the agent message so the proposal doesn't
+    // re-offer (and re-create the thread) after a rehydrate.
+    db.updateMessageThreadSuggestion(suggestionMessageId, {
+      ...suggestion,
+      status: "accepted",
+      createdThreadId: newThreadId,
+    }).catch((e) =>
+      console.error("[guildenstern] persist accepted suggestion failed", e),
+    );
   }
   return newThreadId;
 };
@@ -450,6 +464,17 @@ export const dismissThreadSuggestion = (
   suggestionMessageId: string,
 ) => {
   patchSuggestion(threadId, suggestionMessageId, { status: "dismissed" });
+  if (state.currentUserId.startsWith("preview-")) return;
+  // Persist so the proposal stays dismissed across rehydrates.
+  const thread = state.threads.find((t) => t.id === threadId);
+  const msg = thread?.messages.find((m) => m.id === suggestionMessageId);
+  if (msg?.threadSuggestion) {
+    db.updateMessageThreadSuggestion(suggestionMessageId, {
+      ...msg.threadSuggestion,
+    }).catch((e) =>
+      console.error("[guildenstern] persist dismissed suggestion failed", e),
+    );
+  }
 };
 
 // ---------- ops cards ----------

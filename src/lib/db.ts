@@ -228,6 +228,7 @@ export type MessageRow = {
   author_user_id: string | null;
   body: string;
   briefing: unknown | null;
+  thread_suggestion: unknown | null;
   fold_group_id: string | null;
   fold_summary: string | null;
   created_at: string;
@@ -277,6 +278,20 @@ export async function updateMessageThread(
   const { error } = await supabase
     .from("messages")
     .update({ thread_id: threadId })
+    .eq("id", messageId);
+  if (error) throw error;
+}
+
+// Persist the lifecycle of an Otis thread-suggestion (accepted/dismissed) onto
+// the agent message that carried it, so the proposal doesn't re-offer after a
+// rehydrate. Payload is the full client-shape ThreadSuggestion object.
+export async function updateMessageThreadSuggestion(
+  messageId: string,
+  suggestion: unknown,
+): Promise<void> {
+  const { error } = await supabase
+    .from("messages")
+    .update({ thread_suggestion: suggestion })
     .eq("id", messageId);
   if (error) throw error;
 }

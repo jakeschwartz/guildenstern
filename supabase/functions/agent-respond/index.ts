@@ -65,6 +65,8 @@ If DIRECT, you stay completely silent. Do not respond.
 
 If BURST, you respond with a structured echo in the partner's voice. Format: "Got it — A, B, C. Sound right?" — verbatim ending.
 
+OFF-TOPIC JUDGMENT: occasionally a message opens a whole separate project or subject that doesn't belong in this thread's day-to-day flow — planning a vacation, a home renovation, a big purchase decision — dropped into a thread that's otherwise about daily logistics. When you are confident a message is WILDLY off-topic for this thread and deserves its own dedicated thread, set off_topic=true, give a short suggested_thread_title (2-4 words, e.g. "Italy trip"), and a one-line off_topic_reason. Be conservative — this is rare. Only flag clear, high-confidence cases, never an ordinary tangent or a single stray item. When you flag off_topic: set respond=true, kind="conversational", items=[] (do NOT extract items into this thread — they'll be handled once the message is moved), and write a brief ack noting it feels like its own thing (do NOT echo the items). You never create the thread yourself — you only propose; the partners confirm.
+
 For each item, also extract:
   - title: short noun phrase, in order, max 6 items. Strip filler. Keep critical timing in the title only if it reads naturally ("call contractor Thursday" → title "call contractor", when_label "Thursday").
   - when_label: timing extracted from the message ("today", "tonight", "tomorrow", a weekday name, "this week", "next week", or "ongoing" if no timing is given). Keep it short.
@@ -191,8 +193,31 @@ Deno.serve(async (req) => {
                   required: ["title", "when_label", "bucket"],
                 },
               },
+              off_topic: {
+                type: "boolean",
+                description:
+                  "PARTNERSHIP THREADS ONLY. true only when the latest message is wildly off-topic for this thread — a distinct project/subject deserving its own thread. Be conservative; default false. When true: respond=true, kind='conversational', items=[].",
+              },
+              suggested_thread_title: {
+                type: "string",
+                description:
+                  "If off_topic: a short 2-4 word title for the proposed new thread (e.g. 'Italy trip'). Else empty string.",
+              },
+              off_topic_reason: {
+                type: "string",
+                description:
+                  "If off_topic: one short sentence on why this belongs in its own thread. Else empty string.",
+              },
             },
-            required: ["respond", "kind", "ack", "items"],
+            required: [
+              "respond",
+              "kind",
+              "ack",
+              "items",
+              "off_topic",
+              "suggested_thread_title",
+              "off_topic_reason",
+            ],
           },
         },
       ],
@@ -229,6 +254,9 @@ Deno.serve(async (req) => {
     kind: "burst" | "conversational";
     items: BurstItem[];
     ack: string;
+    off_topic?: boolean;
+    suggested_thread_title?: string;
+    off_topic_reason?: string;
   };
 
   if (!decision.respond || !decision.ack.trim()) {
@@ -279,13 +307,30 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Insert the structured echo as an agent message in the same thread.
-  const { error: insertErr } = await supabase.from("messages").insert({
+  // Insert the structured echo as an agent message in the same thread. If Otis
+  // flagged the message as off-topic (partnership threads only), attach the
+  // thread-suggestion payload in client shape so the app renders the actionable
+  // "move this to its own thread" callout. Suggest-only — nothing is created
+  // server-side; a partner confirms in the UI.
+  const agentMsg: Record<string, unknown> = {
     thread_id: msg.thread_id,
     author_kind: "agent",
     author_user_id: null,
     body: decision.ack.trim(),
-  });
+  };
+  const offTopic =
+    thread.kind === "partnership" &&
+    decision.off_topic === true &&
+    !!decision.suggested_thread_title?.trim();
+  if (offTopic) {
+    agentMsg.thread_suggestion = {
+      suggestedTitle: decision.suggested_thread_title!.trim(),
+      reason: decision.off_topic_reason?.trim() ?? "",
+      sourceMessageIds: [msg.id],
+      status: "open",
+    };
+  }
+  const { error: insertErr } = await supabase.from("messages").insert(agentMsg);
   if (insertErr) {
     console.error("Failed to insert agent ack", insertErr);
     return new Response("insert failed", { status: 500 });
@@ -296,6 +341,7 @@ Deno.serve(async (req) => {
       silent: false,
       items: decision.items,
       cards_inserted: cardsInserted,
+      off_topic: offTopic,
     }),
     { headers: { "content-type": "application/json" } },
   );

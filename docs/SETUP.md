@@ -58,16 +58,18 @@ Only needed on a machine you want to ship builds from. TestFlight builds expire 
 
 1. **Free up disk.** Xcode plus the iOS platform takes roughly 15–20 GB, and the App Store needs extra room while it installs. Aim for 40 GB free.
 2. **Install Xcode 26+** from the App Store and open it once; that accepts the license and installs components. Then add your Apple ID under Xcode → Settings → Accounts. Automatic signing (team `RRX57XZ8N2`) uses that account to create this Mac's certificates.
-3. **Copy two secrets from the build machine.** Neither is in git; AirDrop is easiest.
-   - `~/guildenstern/.env.local` (Supabase URL + publishable key, App Store Connect key and issuer IDs)
-   - `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8`. Apple only lets you download a `.p8` once; if it's lost, create a new key in App Store Connect → Users and Access → Integrations and update the key ID in `.env.local`.
+3. **Create `.env.local`** (not in git). Copy it from the build machine, or write it fresh with two lines:
+   - `VITE_SUPABASE_URL=https://psthqrdqggqgekqbansb.supabase.co`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY=…`, from the Supabase dashboard under Project Settings → API Keys, or `supabase projects api-keys --project-ref psthqrdqggqgekqbansb` after `supabase login`.
+
+   Optional: the App Store Connect API key. That's `APP_STORE_CONNECT_KEY_ID` and `APP_STORE_CONNECT_ISSUER_ID` in `.env.local`, plus `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8`. Without it, Xcode uploads with your Apple ID instead. Apple only lets you download a `.p8` once; if it's lost, create a new key in App Store Connect → Users and Access → Integrations.
 4. **Ship:**
 
    ```bash
    ./scripts/upload-testflight.sh
    ```
 
-   It checks all of the above before touching the build number, then builds, archives, uploads, sets Export Compliance and assigns the internal tester groups. Commit and push the bumped `project.pbxproj` afterwards so the other machine doesn't reuse the number.
+   It checks all of the above before touching the build number, then builds, archives and uploads. Export Compliance is answered in `Info.plist`, and the internal tester groups add new builds automatically. Commit and push the bumped `project.pbxproj` afterwards so the other machine doesn't reuse the number.
 
 `scripts/xcode-env.sh` picks the newest Xcode 26+ in `/Applications`, `~/Applications` or `~/Downloads`; set `XCODE_APP=/path/to/Xcode.app` to override. If the archive fails with "iOS … is not installed", run `xcodebuild -downloadPlatform iOS`.
 

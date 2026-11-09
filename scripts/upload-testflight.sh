@@ -2,12 +2,15 @@
 # Full TestFlight build + upload pipeline.
 #
 # Bumps the build number, builds the web bundle, syncs iOS, archives,
-# exports an App Store-signed .ipa, and uploads to App Store Connect via
-# the API key in ~/.appstoreconnect/private_keys/.
+# exports an App Store-signed .ipa, and uploads it to App Store Connect.
 #
-# Reads the Supabase + App Store Connect settings from .env.local. The
-# matching .p8 must live in ~/.appstoreconnect/private_keys/. Everything is
-# checked before the build number is touched. See docs/SETUP.md.
+# Upload goes through the App Store Connect API key when its .p8 is in
+# ~/.appstoreconnect/private_keys/ (key + issuer IDs in .env.local).
+# Without it, Xcode uploads with the Apple ID in Xcode → Settings → Accounts.
+# Either way Export Compliance comes from Info.plist and the internal tester
+# groups pick the build up automatically.
+#
+# Everything is checked before the build number is touched. See docs/SETUP.md.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,7 +28,7 @@ set +a
 
 # Without the Supabase vars the bundle falls back to a localhost placeholder
 # and the shipped app can't reach the backend.
-for var in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID; do
+for var in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY; do
   if [ -z "${!var:-}" ]; then
     echo "✗ $var missing from .env.local"
     exit 1
@@ -38,11 +41,15 @@ if [ "${VITE_APNS_ENV:-production}" != "production" ]; then
   exit 1
 fi
 
-P8="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
-if [ ! -f "$P8" ]; then
-  echo "✗ App Store Connect key not found at $P8"
-  exit 1
+P8="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID:-none}.p8"
+if [ -n "${APP_STORE_CONNECT_KEY_ID:-}" ] && [ -n "${APP_STORE_CONNECT_ISSUER_ID:-}" ] && [ -f "$P8" ]; then
+  UPLOAD_VIA=api
+else
+  UPLOAD_VIA=xcode
+  echo "▶ No App Store Connect API key on this machine; Xcode will upload with your Apple ID."
 fi
+
+SIGNING_HINT="  Signing or account errors: add your Apple ID in Xcode → Settings → Accounts."
 
 # Bump CURRENT_PROJECT_VERSION
 CURRENT_BUILD=$(grep -E "CURRENT_PROJECT_VERSION = [0-9]+" ios/App/App.xcodeproj/project.pbxproj | head -1 | sed -E 's/.*CURRENT_PROJECT_VERSION = ([0-9]+).*/\1/')
@@ -69,20 +76,36 @@ xcodebuild \
   archive > /tmp/guildenstern-archive.log 2>&1 || {
   echo "✗ Archive failed. Last 30 lines:"
   tail -30 /tmp/guildenstern-archive.log
+  echo "$SIGNING_HINT"
   exit 1
 }
 
-echo "▶ Exporting App Store .ipa…"
+# With destination=upload, the export step also uploads, using the Xcode account.
+EXPORT_OPTIONS=ios/ExportOptions.plist
+if [ "$UPLOAD_VIA" = xcode ]; then
+  cp ios/ExportOptions.plist build/ExportOptions-upload.plist
+  /usr/libexec/PlistBuddy -c "Set :destination upload" build/ExportOptions-upload.plist
+  EXPORT_OPTIONS=build/ExportOptions-upload.plist
+  echo "▶ Exporting + uploading via Xcode…"
+else
+  echo "▶ Exporting App Store .ipa…"
+fi
 xcodebuild \
   -exportArchive \
   -archivePath build/App.xcarchive \
   -exportPath build/AppStoreIPA \
-  -exportOptionsPlist ios/ExportOptions.plist \
+  -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates > /tmp/guildenstern-export.log 2>&1 || {
   echo "✗ Export failed. Last 30 lines:"
   tail -30 /tmp/guildenstern-export.log
+  echo "$SIGNING_HINT"
   exit 1
 }
+
+if [ "$UPLOAD_VIA" = xcode ]; then
+  echo "✓ Build $NEXT_BUILD uploaded. Internal testers get it once Apple finishes processing (usually 5–30 min)."
+  exit 0
+fi
 
 echo "▶ Uploading to App Store Connect…"
 xcrun altool --upload-app \

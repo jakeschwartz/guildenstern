@@ -10,4 +10,4 @@
 - [Commit cadence](project_commit_cadence.md) — commit at the end of each meaningful chunk; push immediately after; founder works across machines.
 - [In-flight: fold resolved threads](project_in_flight_resolved_fold.md) — founder flagged daily-use feels busy; hide resolved threads into summary data. Written May 27, before the June iOS/backend arc. Confirm it still applies.
 - [App state at build 49](project_app_state_build_49.md) — June 2026: Capacitor iOS + Supabase backend, Mira/Otis agents, ops-card clarification was the last feature. Fills the gap after May 27.
-- [Release pipeline](project_release_pipeline.md) — scripts/upload-testflight.sh needs Xcode 26+ + .env.local + ASC .p8; MacBook Air being set up as a second build machine; TestFlight builds expire after 90 days.
+- [Release pipeline](project_release_pipeline.md) — scripts/upload-testflight.sh needs Xcode 26+, .env.local, and an Apple ID in Xcode or the ASC .p8; MacBook Air being set up as a second build machine; TestFlight builds expire after 90 days.

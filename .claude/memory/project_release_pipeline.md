@@ -20,7 +20,7 @@ The script checks the above before bumping the build number, and puts the number
 
 When Apple updates the Developer Program License Agreement, every signing attempt fails with "PLA Update available" until the Account Holder (the founder) accepts it at developer.apple.com/account. This hit on 2026-11-09. Only the founder can accept it.
 
-Builds 1–49 shipped from the founder's other machine using the API key. On 2026-11-09 the founder chose to make "Jake's MacBook Air" a second build machine. Xcode 27.2 is installed there; it has no .p8, so it uses the Apple ID path. Until the Xcode license is accepted, `/usr/bin/git` fails there too; `DEVELOPER_DIR=/Library/Developer/CommandLineTools git …` works around it.
+Builds 1–49 shipped from the founder's other machine using the API key. On 2026-11-09 the founder chose to make "Jake's MacBook Air" a second build machine. Xcode 27.2 is installed there; it has no .p8, so it uses the Apple ID path. Build 50 shipped from it that way on 2026-11-09 (about 2 min end to end). Until the Xcode license is accepted, `/usr/bin/git` fails there too; `DEVELOPER_DIR=/Library/Developer/CommandLineTools git …` works around it.
 
 TestFlight builds expire 90 days after upload. Build 49 (2026-06-20) expired around 2026-09-18, which is why the founder lost access to the app.
 

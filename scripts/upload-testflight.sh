@@ -5,21 +5,42 @@
 # exports an App Store-signed .ipa, and uploads to App Store Connect via
 # the API key in ~/.appstoreconnect/private_keys/.
 #
-# Reads APP_STORE_CONNECT_KEY_ID and APP_STORE_CONNECT_ISSUER_ID from
-# .env.local. The matching .p8 must live in ~/.appstoreconnect/private_keys/.
+# Reads the Supabase + App Store Connect settings from .env.local. The
+# matching .p8 must live in ~/.appstoreconnect/private_keys/. Everything is
+# checked before the build number is touched. See docs/SETUP.md.
 set -euo pipefail
 
-XCODE_DIR=/Users/jakeschwartz/Downloads/Xcode.app/Contents/Developer
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# Load API creds
+. "$ROOT/scripts/xcode-env.sh"
+
+if [ ! -f .env.local ]; then
+  echo "✗ .env.local missing. Copy it from the build machine (see docs/SETUP.md)."
+  exit 1
+fi
 set -a
-. .env.local
+. ./.env.local
 set +a
 
-if [ -z "${APP_STORE_CONNECT_KEY_ID:-}" ] || [ -z "${APP_STORE_CONNECT_ISSUER_ID:-}" ]; then
-  echo "✗ APP_STORE_CONNECT_KEY_ID / APP_STORE_CONNECT_ISSUER_ID missing from .env.local"
+# Without the Supabase vars the bundle falls back to a localhost placeholder
+# and the shipped app can't reach the backend.
+for var in VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID; do
+  if [ -z "${!var:-}" ]; then
+    echo "✗ $var missing from .env.local"
+    exit 1
+  fi
+done
+
+# TestFlight builds get production APNs tokens; a sandbox build never receives pushes.
+if [ "${VITE_APNS_ENV:-production}" != "production" ]; then
+  echo "✗ VITE_APNS_ENV=$VITE_APNS_ENV in .env.local; TestFlight needs production."
+  exit 1
+fi
+
+P8="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+if [ ! -f "$P8" ]; then
+  echo "✗ App Store Connect key not found at $P8"
   exit 1
 fi
 
@@ -38,7 +59,7 @@ npx cap sync ios > /dev/null
 rm -rf build/App.xcarchive build/AppStoreIPA
 
 echo "▶ Archiving (Release)…"
-DEVELOPER_DIR="$XCODE_DIR" xcodebuild \
+xcodebuild \
   -project ios/App/App.xcodeproj \
   -scheme App \
   -configuration Release \
@@ -52,7 +73,7 @@ DEVELOPER_DIR="$XCODE_DIR" xcodebuild \
 }
 
 echo "▶ Exporting App Store .ipa…"
-DEVELOPER_DIR="$XCODE_DIR" xcodebuild \
+xcodebuild \
   -exportArchive \
   -archivePath build/App.xcarchive \
   -exportPath build/AppStoreIPA \

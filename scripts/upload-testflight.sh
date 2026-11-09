@@ -49,13 +49,31 @@ else
   echo "▶ No App Store Connect API key on this machine; Xcode will upload with your Apple ID."
 fi
 
-SIGNING_HINT="  Signing or account errors: add your Apple ID in Xcode → Settings → Accounts."
+# Point at the fix for the signing errors we've actually hit.
+explain_failure() {
+  if grep -q "PLA Update available" "$1"; then
+    echo "  Apple has an updated Program License Agreement. The Account Holder must accept it at"
+    echo "  https://developer.apple.com/account; it can take a few minutes to reach Xcode."
+  elif grep -qE "No Accounts|No account for team" "$1"; then
+    echo "  Add your Apple ID in Xcode → Settings → Accounts."
+  fi
+}
 
 # Bump CURRENT_PROJECT_VERSION
 CURRENT_BUILD=$(grep -E "CURRENT_PROJECT_VERSION = [0-9]+" ios/App/App.xcodeproj/project.pbxproj | head -1 | sed -E 's/.*CURRENT_PROJECT_VERSION = ([0-9]+).*/\1/')
 NEXT_BUILD=$((CURRENT_BUILD + 1))
 echo "▶ Bumping build $CURRENT_BUILD → $NEXT_BUILD"
 sed -i '' "s/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/CURRENT_PROJECT_VERSION = $NEXT_BUILD;/g" ios/App/App.xcodeproj/project.pbxproj
+
+# Any failure before the upload lands puts the build number back.
+UPLOADED=0
+restore_build() {
+  if [ "$UPLOADED" != 1 ]; then
+    sed -i '' "s/CURRENT_PROJECT_VERSION = $NEXT_BUILD;/CURRENT_PROJECT_VERSION = $CURRENT_BUILD;/g" ios/App/App.xcodeproj/project.pbxproj
+    echo "  Nothing was uploaded; build number put back to $CURRENT_BUILD."
+  fi
+}
+trap restore_build EXIT
 
 echo "▶ Building web bundle…"
 npm run build > /dev/null
@@ -76,7 +94,7 @@ xcodebuild \
   archive > /tmp/guildenstern-archive.log 2>&1 || {
   echo "✗ Archive failed. Last 30 lines:"
   tail -30 /tmp/guildenstern-archive.log
-  echo "$SIGNING_HINT"
+  explain_failure /tmp/guildenstern-archive.log
   exit 1
 }
 
@@ -98,11 +116,12 @@ xcodebuild \
   -allowProvisioningUpdates > /tmp/guildenstern-export.log 2>&1 || {
   echo "✗ Export failed. Last 30 lines:"
   tail -30 /tmp/guildenstern-export.log
-  echo "$SIGNING_HINT"
+  explain_failure /tmp/guildenstern-export.log
   exit 1
 }
 
 if [ "$UPLOAD_VIA" = xcode ]; then
+  UPLOADED=1
   echo "✓ Build $NEXT_BUILD uploaded. Internal testers get it once Apple finishes processing (usually 5–30 min)."
   exit 0
 fi
@@ -113,6 +132,7 @@ xcrun altool --upload-app \
   -t ios \
   --apiKey "$APP_STORE_CONNECT_KEY_ID" \
   --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+UPLOADED=1
 
 echo "✓ Build $NEXT_BUILD uploaded."
 echo "▶ Waiting for Apple processing then setting Export Compliance + tester groups…"

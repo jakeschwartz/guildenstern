@@ -16,7 +16,9 @@ What it needs outside git:
 
 Export Compliance is answered in Info.plist (`ITSAppUsesNonExemptEncryption = NO`, added 2026-11-09). The internal tester groups auto-add builds. So the API-key path isn't required for testers to get a build.
 
-The script checks the above before bumping the build number.
+The script checks the above before bumping the build number, and puts the number back if anything fails before the upload lands.
+
+When Apple updates the Developer Program License Agreement, every signing attempt fails with "PLA Update available" until the Account Holder (the founder) accepts it at developer.apple.com/account. This hit on 2026-11-09. Only the founder can accept it.
 
 Builds 1–49 shipped from the founder's other machine using the API key. On 2026-11-09 the founder chose to make "Jake's MacBook Air" a second build machine. Xcode 27.2 is installed there; it has no .p8, so it uses the Apple ID path. Until the Xcode license is accepted, `/usr/bin/git` fails there too; `DEVELOPER_DIR=/Library/Developer/CommandLineTools git …` works around it.
 

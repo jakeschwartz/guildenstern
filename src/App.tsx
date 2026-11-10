@@ -9,6 +9,7 @@ import { Login } from "./views/Login";
 import { InvitePartner } from "./views/InvitePartner";
 import { JoinPartnership } from "./views/JoinPartnership";
 import { OpenSpoke } from "./views/OpenSpoke";
+import { setRundownPreviewClock } from "./components/Rundown";
 import {
   hydrate,
   seedDevState,
@@ -16,7 +17,8 @@ import {
   useHydrateFromSession,
 } from "./state/store";
 import { useSession, signOut } from "./lib/auth";
-import { registerPushIfNative } from "./lib/push";
+import { onPushOpen, registerPushIfNative, sendTestRundown } from "./lib/push";
+import { startActivityTracking } from "./lib/activity";
 import { getTheme, toggleTheme } from "./lib/theme";
 import { supabase } from "./lib/supabase";
 import * as db from "./lib/db";
@@ -29,6 +31,8 @@ import {
   previewState,
   previewStateSolo,
   previewStateMira,
+  previewStateRundown,
+  previewStateRundownQuiet,
   PREVIEW_PARTNERSHIP_THREAD_ID,
   PREVIEW_PERSONAL_THREAD_ID,
 } from "./dev/previewSeed";
@@ -67,6 +71,12 @@ if (previewHash === "ops" || previewHash === "app") {
   seedDevState(previewStateSolo);
 } else if (previewHash === "mira") {
   seedDevState(previewStateMira);
+} else if (previewHash?.startsWith("rundown")) {
+  // #preview-rundown (real clock), -am, -pm, -quiet: Mira's rundown as Jenny.
+  seedDevState(previewHash === "rundown-quiet" ? previewStateRundownQuiet : previewStateRundown);
+  const pinned = new Date();
+  if (previewHash === "rundown-am") setRundownPreviewClock(pinned.setHours(8, 5, 0, 0));
+  if (previewHash === "rundown-pm") setRundownPreviewClock(pinned.setHours(20, 5, 0, 0));
 }
 
 // Fully navigable demo shell against seeded data — for screen-share demos.
@@ -160,8 +170,9 @@ export const App = () => {
     return <PreviewMira />;
   }
   // Hash route: render the inbox with a solo (no-partnership) seed so we can
-  // see Mira-only state + the "No partnerships yet" empty hint.
-  if (previewHash === "inbox-solo") {
+  // see Mira-only state + the "No partnerships yet" empty hint. Same inbox
+  // for the rundown routes, seeded as Jenny.
+  if (previewHash === "inbox-solo" || previewHash?.startsWith("rundown")) {
     return (
       <Frame>
         <ThreadList
@@ -177,8 +188,17 @@ export const App = () => {
   const session = useSession();
   useHydrateFromSession(session);
   useEffect(() => {
-    if (session && session !== "loading") registerPushIfNative();
+    if (session && session !== "loading") {
+      registerPushIfNative();
+      startActivityTracking();
+    }
   }, [session]);
+  // Where a tapped notification should land: its thread, or the inbox (null)
+  // for Mira's rundown. On a cold start the tap arrives before the thread
+  // list loads, so it waits here until it can be opened.
+  const [pushTarget, setPushTarget] = useState<{ threadId: string | null } | null>(null);
+  useEffect(() => onPushOpen((threadId) => setPushTarget({ threadId })), []);
+  const [testRundown, setTestRundown] = useState<string | null>(null);
 
   const status = useStore((s) => s.status);
   const errorMsg = useStore((s) => s.error);
@@ -249,6 +269,25 @@ export const App = () => {
     setJoinOpen(false);
     setSpokeOpen(false);
   };
+
+  useEffect(() => {
+    if (!pushTarget) return;
+    if (pushTarget.threadId === null) {
+      closeAllSheets();
+      setRoute({ name: "inbox" });
+      setPushTarget(null);
+      return;
+    }
+    const t = threads.find((tt) => tt.id === pushTarget.threadId);
+    if (!t) return; // not loaded yet; runs again when threads arrive
+    closeAllSheets();
+    if (t.kind === "personal" && t.ownerId === currentUserId) {
+      setRoute({ name: "personal", threadId: t.id });
+    } else if (t.kind === "partnership") {
+      setRoute({ name: "partnership", threadId: t.id });
+    }
+    setPushTarget(null);
+  }, [pushTarget, threads, currentUserId]);
 
   // --- gates ---
   if (session === "loading") {
@@ -421,6 +460,29 @@ export const App = () => {
                   ? "✓"
                   : "→"}
               </span>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                setTestRundown("Sending…");
+                sendTestRundown()
+                  .then(setTestRundown)
+                  .catch((e: unknown) =>
+                    setTestRundown(
+                      `Couldn't send: ${e instanceof Error ? e.message : String(e)}`,
+                    ),
+                  );
+              }}
+              className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
+            >
+              <div className="text-[15px] font-semibold text-ink tracking-tight">
+                Send me a test rundown
+              </div>
+              <div className="text-[12.5px] text-muted mt-0.5">
+                {testRundown ??
+                  "Mira's twice-daily push, now. Doesn't count toward the experiment."}
+              </div>
             </button>
           </li>
           <li>

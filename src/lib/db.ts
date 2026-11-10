@@ -372,6 +372,7 @@ export type OpsCardRow = {
   status: OpsCardStatus;
   clarification: unknown | null;
   created_at: string;
+  done_at?: string | null;
 };
 
 export async function getOpsCards(threadId: string): Promise<OpsCardRow[]> {
@@ -540,4 +541,13 @@ export function subscribeToThreadReactions(
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+// ---------- activity ----------
+
+// One row per app open (launch or return to foreground), plus the device's
+// timezone so Mira's rundown arrives at 8am / 8pm local.
+export async function recordAppOpen(timezone: string): Promise<void> {
+  const { error } = await supabase.rpc("record_app_open", { p_timezone: timezone });
+  if (error) throw error;
 }

@@ -271,6 +271,13 @@ verify_jwt = false
 [functions.send-push]
 verify_jwt = false
 
+# send-rundown: pg_cron calls it every 15 minutes with no Authorization. The
+# app's "Send me a test rundown" passes the user's token, which the function
+# verifies itself (auth.getUser) and uses only to send that user their own.
+# Scheduled runs return counts only, never content.
+[functions.send-rundown]
+verify_jwt = false
+
 # announce-status: trigger-invoked when ops_cards.status flips. Posts an
 # Otis chat message ("Jake's got: vaccine appt"). Same rationale.
 [functions.announce-status]

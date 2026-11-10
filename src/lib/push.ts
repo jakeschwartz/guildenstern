@@ -22,6 +22,46 @@ const APNS_ENV: "production" | "sandbox" =
 
 let registered = false;
 
+// --- Notification taps ---
+// Every push carries push_id (count the tap in push_log) and, when it's about
+// a thread, thread_id (open that thread). No thread_id — Mira's rundown —
+// means open the inbox, where the rundown is; the handler gets null.
+// Capacitor retains a tap until a listener attaches, so a tap that
+// cold-starts the app still arrives once App subscribes.
+let tapListening = false;
+let tapHandler: ((threadId: string | null) => void) | null = null;
+let pendingTap: { threadId: string | null } | null = null;
+
+export function onPushOpen(handler: (threadId: string | null) => void): () => void {
+  tapHandler = handler;
+  if (pendingTap) {
+    handler(pendingTap.threadId);
+    pendingTap = null;
+  }
+  if (Capacitor.isNativePlatform() && !tapListening) {
+    tapListening = true;
+    void PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+      const data = (action.notification.data ?? {}) as {
+        thread_id?: string;
+        push_id?: string;
+      };
+      if (data.push_id) {
+        supabase
+          .rpc("mark_push_opened", { p_push_id: data.push_id })
+          .then(({ error }) => {
+            if (error) console.warn("[push] mark_push_opened failed", error.message);
+          });
+      }
+      const threadId = data.thread_id ?? null;
+      if (tapHandler) tapHandler(threadId);
+      else pendingTap = { threadId };
+    });
+  }
+  return () => {
+    if (tapHandler === handler) tapHandler = null;
+  };
+}
+
 // Visible-on-device diagnostic. Keeps a string in window so the inbox can
 // surface push state without Safari Web Inspector. Cleared once we know
 // notifications work.
@@ -106,4 +146,16 @@ export async function registerPushIfNative(): Promise<void> {
       `exception: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+}
+
+// "Send me a test rundown" (menu): asks send-rundown for one right now,
+// as the signed-in user. Logged as rundown_test, so it never counts toward
+// the experiment. Returns what was sent, for the menu to show.
+export async function sendTestRundown(): Promise<string> {
+  const { data, error } = await supabase.functions.invoke("send-rundown", { body: {} });
+  if (error) throw error;
+  const r = data as { outcome: string; variant?: string; body?: string };
+  if (r.outcome === "sent" && r.body) return `Sent (${r.variant}): ${r.body}`;
+  if (r.outcome === "skipped_nothing") return "Nothing to say right now, so no push.";
+  return `No push sent (${r.outcome}).`;
 }

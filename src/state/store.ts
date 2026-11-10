@@ -130,6 +130,7 @@ const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
   sourceMessageId: row.source_message_id ?? "",
   sourceUserId: row.source_user_id ?? "",
   createdAt: new Date(row.created_at).getTime(),
+  doneAt: row.done_at ? new Date(row.done_at).getTime() : undefined,
   clarification:
     row.clarification && typeof row.clarification === "object"
       ? (row.clarification as OpsCard["clarification"])
@@ -678,7 +679,9 @@ export const setOpsCardStatus = async (
     return {
       ...t,
       opsCards: t.opsCards.map((c) =>
-        c.id === cardId ? { ...c, status } : c,
+        c.id === cardId
+          ? { ...c, status, doneAt: status === "done" ? Date.now() : undefined }
+          : c,
       ),
     };
   });

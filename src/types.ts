@@ -135,6 +135,8 @@ export type OpsCard = {
   sourceMessageId: MessageId;
   sourceUserId: UserId;
   createdAt: number;
+  // When it was marked done (server-stamped). Drives the rundown's "Handled".
+  doneAt?: number;
   // Optional: existing calendar event this card's proposed time conflicts
   // with. Surfaced as a ⚠ indicator in the Sheet row with a tap-to-expand
   // resolution menu.

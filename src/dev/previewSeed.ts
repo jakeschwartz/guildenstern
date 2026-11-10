@@ -4,6 +4,7 @@
 // from App.tsx when a hash route is detected, and only on web.
 
 import type {
+  CalendarEvent,
   Conflict,
   Message,
   OpsCard,
@@ -291,4 +292,89 @@ export const previewStateMira = {
   users: [me, partner],
   partnerships: [partnership],
   threads: [personalThreadWithMira, partnershipThread],
+};
+
+// Mira's rundown from Jenny's side (#preview-rundown, -am, -pm): a question
+// from Jake, two things on her list, one new from him, two handled for her,
+// one still in his hands, and two events later today.
+const rundownCard = (over: Partial<OpsCard> & Pick<OpsCard, "id" | "title">): OpsCard => ({
+  owner: PARTNER_ID,
+  when: "this week",
+  bucket: "week",
+  status: "pending",
+  sourceMessageId: "m1",
+  sourceUserId: ME_ID,
+  createdAt: NOW - 30 * HOUR,
+  ...over,
+});
+
+const rundownKids: PartnershipThread = {
+  kind: "partnership",
+  id: "preview-kids-thread",
+  partnershipId: PARTNERSHIP_ID,
+  title: "Kids",
+  isDefault: false,
+  messages: [],
+  opsCards: [
+    rundownCard({
+      id: "r1",
+      title: "Eli pickup Friday",
+      owner: ME_ID,
+      sourceUserId: PARTNER_ID,
+      clarification: { note: "Is it 3:00 or 3:30 on Fridays?", askedByUserId: ME_ID, askedAt: NOW - HOUR, status: "open" },
+    }),
+    rundownCard({ id: "r2", title: "Call daycare about Friday's closure", createdAt: NOW - 40 * HOUR }),
+    rundownCard({ id: "r3", title: "Sign Eli's camp permission slip", createdAt: NOW - 2 * HOUR }),
+    rundownCard({ id: "r4", title: "Sneakers for Eli", owner: ME_ID, sourceUserId: PARTNER_ID, status: "done", doneAt: NOW - 2 * HOUR }),
+  ],
+  agentActive: true,
+  createdAt: NOW - 20 * 24 * HOUR,
+};
+
+const rundownHouse: PartnershipThread = {
+  kind: "partnership",
+  id: "preview-house-thread",
+  partnershipId: PARTNERSHIP_ID,
+  title: "House",
+  isDefault: false,
+  messages: [],
+  opsCards: [
+    rundownCard({ id: "r5", title: "Order diapers", sourceUserId: PARTNER_ID, createdAt: NOW - 35 * HOUR }),
+    rundownCard({ id: "r6", title: "Book the plumber", owner: ME_ID, sourceUserId: PARTNER_ID, status: "done", doneAt: NOW - 30 * MIN }),
+    rundownCard({ id: "r7", title: "Fix the porch light", owner: ME_ID, sourceUserId: PARTNER_ID }),
+  ],
+  agentActive: true,
+  createdAt: NOW - 20 * 24 * HOUR,
+};
+
+const rundownEvents: CalendarEvent[] = [
+  { id: "e1", title: "Eli · pediatrician", start: NOW + HOUR, end: NOW + 2 * HOUR, allDay: false, location: null },
+  { id: "e2", title: "Plumber window", start: NOW + 3 * HOUR, end: NOW + 5 * HOUR, allDay: false, location: null },
+];
+
+export const previewStateRundown = {
+  status: "ready" as const,
+  error: null,
+  currentUserId: PARTNER_ID,
+  users: [me, partner],
+  partnerships: [partnership],
+  threads: [
+    { ...personalThread, ownerId: PARTNER_ID },
+    { ...partnershipThread, opsCards: [] },
+    rundownKids,
+    rundownHouse,
+  ],
+  calendarEvents: rundownEvents,
+  calendarEventsFetchedAt: NOW,
+};
+
+// Same people, nothing going on: the quiet one-liner.
+export const previewStateRundownQuiet = {
+  ...previewStateRundown,
+  threads: [
+    { ...personalThread, ownerId: PARTNER_ID },
+    { ...partnershipThread, opsCards: [] },
+    { ...rundownHouse, opsCards: [rundownHouse.opsCards[2]!] },
+  ],
+  calendarEvents: [],
 };

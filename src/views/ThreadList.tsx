@@ -1,6 +1,7 @@
 // v4 Inbox per spec §5. Mira pinned at the top (plum tint + plum dot +
-// PINNED). Group/partnership threads with squircle avatars, no chevron,
-// pending dot when something needs you.
+// PINNED), opened up into her rundown (components/Rundown.tsx).
+// Group/partnership threads with squircle avatars, no chevron, pending dot
+// when something needs you.
 
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -9,6 +10,7 @@ import type { PartnershipThread, PersonalThread, User } from "../types";
 import { formatRelative } from "../lib/time";
 import { InboxHeader } from "../components/InboxHeader";
 import { ListRow } from "../components/ListRow";
+import { Rundown } from "../components/Rundown";
 import { getPushStatus } from "../lib/push";
 
 type Props = {
@@ -88,15 +90,7 @@ export const ThreadList = ({ onOpen, onNew, onFilter, onMenu }: Props) => {
 
       <div className="flex-1 overflow-y-auto">
         {personalThread && (
-          <ListRow
-            initials="M"
-            title="Mira"
-            preview={previewText(personalThread, usersById)}
-            timestamp={formatRelative(lastActivity(personalThread))}
-            pinned
-            voice="mira"
-            onOpen={() => onOpen(personalThread.id)}
-          />
+          <Rundown miraThread={personalThread} onOpen={onOpen} />
         )}
         {partnershipThreads.map((t) => {
           const partnerName = partnerNameFor(t.partnershipId);

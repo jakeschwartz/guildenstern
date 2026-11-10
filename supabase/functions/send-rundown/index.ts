@@ -246,6 +246,7 @@ async function history(userId: string, now: number): Promise<{ sent: SentRundown
 type Outcome =
   | "not_due"
   | "already_ran"
+  | "skipped_old_app"
   | "skipped_active"
   | "skipped_nothing"
   | "sent"
@@ -284,7 +285,14 @@ async function runFor(
       if (claimErr.code !== "23505") console.error("[send-rundown] claim failed", claimErr);
       return { outcome: "already_ran" };
     }
-    const lastActive = profile?.last_active_at ? Date.parse(profile.last_active_at as string) : 0;
+    // Only builds 53+ show the rundown, and only they record opens. Until a
+    // person's app has reported in once, a rundown push would land them on
+    // an inbox without one.
+    if (!profile?.last_active_at) {
+      await record({ outcome: "skipped_old_app" });
+      return { outcome: "skipped_old_app" };
+    }
+    const lastActive = Date.parse(profile.last_active_at as string);
     if (now - lastActive < ACTIVE_SKIP_MS) {
       await record({ outcome: "skipped_active" });
       return { outcome: "skipped_active" };

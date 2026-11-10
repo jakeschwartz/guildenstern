@@ -22,7 +22,7 @@ When Apple updates the Developer Program License Agreement, every signing attemp
 
 Builds 1–49 shipped from the founder's other machine using the API key. On 2026-11-09 the founder chose to make "Jake's MacBook Air" a second build machine. Xcode 27.2 is installed there; it has no .p8, so it uses the Apple ID path. Build 50 shipped from it that way on 2026-11-09 (about 2 min end to end). Until the Xcode license is accepted, `/usr/bin/git` fails there too; `DEVELOPER_DIR=/Library/Developer/CommandLineTools git …` works around it.
 
-Builds 50 and 51 were the first made with Xcode 27, and they crashed on launch. Apps built with the iOS 27 SDK must use the UIScene life cycle or UIKit refuses to launch them. Build 52 added `SceneDelegate.swift` and a scene manifest in Info.plist. In the iOS 27.2 simulator, launch then stalled ~10 s in a Swift runtime type lookup inside CAPLog.print; whether that also happens on device was unverified as of 2026-11-09.
+Builds 50 and 51 were the first made with Xcode 27, and they crashed on launch. Apps built with the iOS 27 SDK must use the UIScene life cycle or UIKit refuses to launch them. Build 52 added `SceneDelegate.swift` and a scene manifest in Info.plist. In the iOS 27.2 simulator, launch then stalled ~10 s in a Swift runtime type lookup inside CAPLog.print. On 2026-11-10 the founder confirmed build 52 opens quickly on their phone, so the stall is simulator-only. Don't chase it unless it shows up on a device.
 
 TestFlight builds expire 90 days after upload. Build 49 (2026-06-20) expired around 2026-09-18, which is why the founder lost access to the app.
 

@@ -37,6 +37,7 @@ const DEFAULT_TZ = "America/New_York";
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const ACTIVE_SKIP_MS = 2 * HOUR;
+const TEST_DELAY_MS = 10_000;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -252,11 +253,15 @@ type Outcome =
   | "sent"
   | "failed";
 
+type RunResult = { outcome: Outcome; variant?: string; body?: string };
+
 async function runFor(
   userId: string,
   now: number,
   test: boolean,
-): Promise<{ outcome: Outcome; variant?: string; body?: string }> {
+  // Test runs: called with what's about to be sent, just before sending.
+  beforeSend?: (preview: RunResult) => Promise<void>,
+): Promise<RunResult> {
   const { data: profile } = await supabase
     .from("profiles")
     .select("timezone, last_active_at")
@@ -309,6 +314,13 @@ async function runFor(
 
   const { sent, opens } = await history(userId, now);
   const pick = pickCandidate(candidates, sent, opens, now)!;
+  // "sent" because it's on its way; build 53's menu shows anything else as
+  // "No push sent".
+  await beforeSend?.({
+    outcome: "sent",
+    variant: pick.candidate.variant,
+    body: pick.candidate.body,
+  });
   const result = await pushToUser(
     supabase as any,
     userId,
@@ -338,12 +350,38 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   const now = Date.now();
 
-  // A signed-in user asking for their own test rundown.
+  // A signed-in user asking for their own test rundown. iOS hides a push
+  // that arrives while the app is open, and the button is in the app, so:
+  // answer right away with what will be sent, then send it TEST_DELAY_MS
+  // later, giving them time to leave the app.
   const auth = req.headers.get("Authorization") ?? "";
   const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (jwt) {
     const { data } = await supabase.auth.getUser(jwt);
-    if (data.user) return json(await runFor(data.user.id, now, true));
+    if (data.user) {
+      const userId = data.user.id;
+      let answer!: (r: RunResult) => void;
+      const answered = new Promise<RunResult>((resolve) => (answer = resolve));
+      const work = runFor(userId, now, true, async (preview) => {
+        answer(preview);
+        await new Promise((r) => setTimeout(r, TEST_DELAY_MS));
+      })
+        .then(answer)
+        .catch((e) => {
+          console.error("[send-rundown] test run failed", e);
+          answer({ outcome: "failed" });
+        });
+      try {
+        // @ts-ignore: EdgeRuntime is provided by Supabase's Deno deploy env.
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+          // @ts-ignore
+          EdgeRuntime.waitUntil(work);
+        }
+      } catch (e) {
+        console.error("[send-rundown] waitUntil setup failed", e);
+      }
+      return json(await answered);
+    }
   }
 
   // Scheduled: everyone who can receive pushes.

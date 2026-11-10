@@ -148,14 +148,17 @@ export async function registerPushIfNative(): Promise<void> {
   }
 }
 
-// "Send me a test rundown" (menu): asks send-rundown for one right now,
-// as the signed-in user. Logged as rundown_test, so it never counts toward
-// the experiment. Returns what was sent, for the menu to show.
+// "Send me a test rundown" (menu): asks send-rundown for one, as the
+// signed-in user. Logged as rundown_test, so it never counts toward the
+// experiment. iOS hides pushes while the app is open, so the server answers
+// right away and sends about 10 seconds later. Returns what to show.
 export async function sendTestRundown(): Promise<string> {
   const { data, error } = await supabase.functions.invoke("send-rundown", { body: {} });
   if (error) throw error;
   const r = data as { outcome: string; variant?: string; body?: string };
-  if (r.outcome === "sent" && r.body) return `Sent (${r.variant}): ${r.body}`;
+  if (r.outcome === "sent" && r.body) {
+    return `Close the app now. Arriving in about 10 seconds (${r.variant}): ${r.body}`;
+  }
   if (r.outcome === "skipped_nothing") return "Nothing to say right now, so no push.";
   return `No push sent (${r.outcome}).`;
 }

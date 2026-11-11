@@ -166,6 +166,19 @@ export type Partnership = {
   participantIds: [UserId, UserId];
 };
 
+// A household-logistics item Mira found in your email (bill due, appointment,
+// school notice...). Private to you until you add it to the shared list.
+export type EmailItem = {
+  id: string;
+  fromName: string | null;
+  subject: string | null;
+  title: string;
+  subtitle?: string;
+  dueAt?: number;
+  dueHasTime: boolean;
+  receivedAt: number | null;
+};
+
 // Normalized Google Calendar event. Returned by the fetch-google-events
 // edge function which collapses Google's dateTime/date variation into a
 // single ms epoch + allDay flag, so the client doesn't have to.

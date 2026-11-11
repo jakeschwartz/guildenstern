@@ -20,6 +20,7 @@ import { supabase } from "../lib/supabase";
 import type {
   Attachment,
   CalendarEvent,
+  EmailItem,
   Message,
   MessageAuthor,
   OpsCard,
@@ -49,6 +50,9 @@ type State = {
   // on demand. Empty if Google isn't connected.
   calendarEvents: CalendarEvent[];
   calendarEventsFetchedAt: number | null;
+  // Household items Mira found in your email. Private suggestions until you
+  // add one to the shared list. Empty unless Gmail is connected.
+  emailItems: EmailItem[];
 };
 
 const initial: State = {
@@ -60,6 +64,7 @@ const initial: State = {
   threads: [],
   calendarEvents: [],
   calendarEventsFetchedAt: null,
+  emailItems: [],
 };
 
 let state: State = initial;
@@ -276,6 +281,7 @@ export const hydrate = async (session: Session) => {
     threads: [],
     calendarEvents: [],
     calendarEventsFetchedAt: null,
+    emailItems: [],
   });
   teardownRealtime();
 
@@ -356,12 +362,76 @@ export const hydrate = async (session: Session) => {
       partnerships: partnershipShapes,
       threads: [personalThread, ...partnershipThreads],
     });
+    void loadEmailItems(session.user.id);
   } catch (e) {
     console.error("[guildenstern] hydrate failed", e);
     setState({
       status: "error",
       error: e instanceof Error ? e.message : String(e),
     });
+  }
+};
+
+// ---------- email items (Gmail sync) ----------
+
+const emailItemRowToEmailItem = (r: db.EmailItemRow): EmailItem => ({
+  id: r.id,
+  fromName: r.from_name,
+  subject: r.subject,
+  title: r.title ?? r.subject ?? "From your email",
+  subtitle: r.subtitle ?? undefined,
+  dueAt: r.due_at ? new Date(r.due_at).getTime() : undefined,
+  dueHasTime: r.due_has_time,
+  receivedAt: r.received_at ? new Date(r.received_at).getTime() : null,
+});
+
+const isOpenEmailRow = (r: db.EmailItemRow) => r.actionable && r.status === "new";
+
+// Load open suggestions and keep them live: the scanner inserts rows in the
+// background, and add/dismiss on another device should clear them here.
+const loadEmailItems = async (userId: string) => {
+  try {
+    const rows = await db.getOpenEmailItems();
+    setState({ emailItems: rows.map(emailItemRowToEmailItem) });
+  } catch (e) {
+    console.warn("[guildenstern] email items load failed", e);
+  }
+  realtimeUnsubs.push(
+    db.subscribeToEmailItems(userId, (event, row) => {
+      const rest = state.emailItems.filter((i) => i.id !== row.id);
+      const next =
+        event !== "DELETE" && isOpenEmailRow(row)
+          ? [emailItemRowToEmailItem(row), ...rest]
+          : rest;
+      setState({ emailItems: next });
+    }),
+  );
+};
+
+// Add a suggestion to the shared list, for you or your partner. Optimistic:
+// it leaves the rundown immediately; the card arrives via the thread's
+// realtime subscription.
+export const addEmailItem = async (itemId: string, ownerId: string) => {
+  const before = state.emailItems;
+  setState({ emailItems: before.filter((i) => i.id !== itemId) });
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.addEmailItemToList(itemId, ownerId);
+  } catch (e) {
+    console.error("[guildenstern] addEmailItem failed", e);
+    setState({ emailItems: before });
+  }
+};
+
+export const dismissEmailItem = async (itemId: string) => {
+  const before = state.emailItems;
+  setState({ emailItems: before.filter((i) => i.id !== itemId) });
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.dismissEmailItem(itemId);
+  } catch (e) {
+    console.error("[guildenstern] dismissEmailItem failed", e);
+    setState({ emailItems: before });
   }
 };
 

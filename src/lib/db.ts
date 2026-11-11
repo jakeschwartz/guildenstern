@@ -545,6 +545,90 @@ export function subscribeToThreadReactions(
   };
 }
 
+// ---------- email items (Gmail sync) ----------
+
+export type EmailItemRow = {
+  id: string;
+  user_id: string;
+  from_name: string | null;
+  subject: string | null;
+  title: string | null;
+  subtitle: string | null;
+  due_at: string | null;
+  due_has_time: boolean;
+  received_at: string | null;
+  actionable: boolean;
+  status: "new" | "added" | "dismissed";
+};
+
+// Open suggestions only: actionable, not yet added or dismissed.
+export async function getOpenEmailItems(): Promise<EmailItemRow[]> {
+  const { data, error } = await supabase
+    .from("email_items")
+    .select(
+      "id,user_id,from_name,subject,title,subtitle,due_at,due_has_time,received_at,actionable,status",
+    )
+    .eq("actionable", true)
+    .eq("status", "new")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as EmailItemRow[];
+}
+
+// Puts the suggestion on the shared list for `ownerId` (you or your partner).
+export async function addEmailItemToList(
+  itemId: string,
+  ownerId: string,
+): Promise<string> {
+  const { data, error } = await supabase.rpc("add_email_item_to_list", {
+    p_item_id: itemId,
+    p_owner: ownerId,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function dismissEmailItem(itemId: string): Promise<void> {
+  const { error } = await supabase.rpc("dismiss_email_item", {
+    p_item_id: itemId,
+  });
+  if (error) throw error;
+}
+
+// Scan this person's inbox now (right after connecting Gmail) instead of
+// waiting for the half-hourly run.
+export async function scanGmailNow(): Promise<void> {
+  const { error } = await supabase.functions.invoke("scan-gmail", { body: {} });
+  if (error) throw error;
+}
+
+export function subscribeToEmailItems(
+  userId: string,
+  onChange: (event: "INSERT" | "UPDATE" | "DELETE", row: EmailItemRow) => void,
+) {
+  const channel = supabase
+    .channel(`email_items:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "email_items",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        const event = payload.eventType as "INSERT" | "UPDATE" | "DELETE";
+        const row = (event === "DELETE" ? payload.old : payload.new) as EmailItemRow;
+        onChange(event, row);
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 // ---------- activity ----------
 
 // One row per app open (launch or return to foreground), plus the device's

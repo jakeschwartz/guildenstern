@@ -251,10 +251,21 @@ export const App = () => {
       if (!alive) return;
       setGoogleConnected(s.connected);
       setGoogleScopes(s.scopes);
+      hadGmail = s.scopes.some((x) => x.includes("gmail.readonly"));
     });
+    let hadGmail: boolean | null = null;
     const unsub = subscribeToGoogleTokens((s) => {
       setGoogleConnected(s.connected);
       setGoogleScopes(s.scopes);
+      // Gmail just got connected: scan now so suggestions appear in the
+      // rundown right away instead of at the next half-hourly run.
+      const hasGmail = s.scopes.some((x) => x.includes("gmail.readonly"));
+      if (hasGmail && hadGmail === false) {
+        void db.scanGmailNow().catch((e) =>
+          console.warn("[guildenstern] first Gmail scan failed", e),
+        );
+      }
+      hadGmail = hasGmail;
     });
     return () => {
       alive = false;
@@ -436,27 +447,35 @@ export const App = () => {
             <button
               onClick={() => {
                 setMenuOpen(false);
-                void connectGoogle(["calendar.readonly"]);
+                // One consent screen for both; the server merges with any
+                // scopes already granted.
+                void connectGoogle(["calendar.readonly", "gmail.readonly"]);
               }}
               className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors flex items-center justify-between gap-3"
             >
               <div>
                 <div className="text-[15px] font-semibold text-ink tracking-tight">
-                  Google Calendar
+                  Google Calendar &amp; Gmail
                 </div>
                 <div className="text-[12.5px] text-muted mt-0.5">
-                  {googleConnected
-                    ? googleScopes.some((s) =>
-                        s.includes("calendar.readonly"),
-                      )
-                      ? "Connected"
-                      : "Reconnect to add Calendar scope"
-                    : "Connect to surface events"}
+                  {(() => {
+                    const cal =
+                      googleConnected &&
+                      googleScopes.some((s) => s.includes("calendar.readonly"));
+                    const mail =
+                      googleConnected &&
+                      googleScopes.some((s) => s.includes("gmail.readonly"));
+                    if (cal && mail) return "Connected. Mira checks your inbox for bills and appointments.";
+                    if (cal) return "Add Gmail so Mira can find bills and appointments";
+                    if (mail) return "Add Calendar so Mira knows your day";
+                    return "Connect so Mira sees your day and your inbox";
+                  })()}
                 </div>
               </div>
               <span className="text-[12px] text-otis">
                 {googleConnected &&
-                googleScopes.some((s) => s.includes("calendar.readonly"))
+                googleScopes.some((s) => s.includes("calendar.readonly")) &&
+                googleScopes.some((s) => s.includes("gmail.readonly"))
                   ? "✓"
                   : "→"}
               </span>

@@ -6,9 +6,16 @@
 
 import { useEffect } from "react";
 import { Avatar } from "./Avatar";
-import { refreshCalendarEvents, setOpsCardStatus, useStore } from "../state/store";
-import type { OpsCard, PersonalThread } from "../types";
+import {
+  addEmailItem,
+  dismissEmailItem,
+  refreshCalendarEvents,
+  setOpsCardStatus,
+  useStore,
+} from "../state/store";
+import type { EmailItem, OpsCard, PersonalThread } from "../types";
 import { formatRelative } from "../lib/time";
+import { formatDue, isOverdue } from "../lib/due";
 
 type Props = {
   miraThread: PersonalThread;
@@ -45,6 +52,7 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
   const me = useStore((s) => s.currentUserId);
   const events = useStore((s) => s.calendarEvents);
   const eventsFetchedAt = useStore((s) => s.calendarEventsFetchedAt);
+  const emailItems = useStore((s) => s.emailItems);
 
   useEffect(() => {
     if (!eventsFetchedAt || Date.now() - eventsFetchedAt > CALENDAR_STALE_MS) {
@@ -71,6 +79,14 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
       : [],
   );
   const byCreated = (a: Item, b: Item) => a.card.createdAt - b.card.createdAt;
+  // Dated items first, soonest first (overdue on top); undated by filing order.
+  const byDue = (a: Item, b: Item) => {
+    const ad = a.card.dueAt, bd = b.card.dueAt;
+    if (ad !== undefined && bd !== undefined) return ad - bd;
+    if (ad !== undefined) return -1;
+    if (bd !== undefined) return 1;
+    return byCreated(a, b);
+  };
 
   const questions = items
     .filter(({ card }) => card.clarification?.status === "open" && card.clarification.askedByUserId !== me)
@@ -84,7 +100,7 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
   const freshIds = new Set(fresh.map((i) => i.card.id));
   const list = items
     .filter(({ card }) => card.owner === me && isOpenCard(card) && !freshIds.has(card.id))
-    .sort(byCreated);
+    .sort(byDue);
   const handledSince = part === "morning" ? now - 24 * HOUR : startOfToday;
   const handled = items
     .filter(({ card }) =>
@@ -101,7 +117,9 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
       .filter((e) => !e.allDay && e.start > now && e.start < endOfToday)
       .sort((a, b) => a.start - b.start);
 
-  const quiet = !questions.length && !list.length && !fresh.length && !handled.length && !today.length;
+  const quiet =
+    !questions.length && !list.length && !fresh.length && !handled.length &&
+    !today.length && !emailItems.length;
 
   let greeting: string;
   if (part === "morning") greeting = myFirst ? `Morning, ${myFirst}. Here's your day.` : "Morning. Here's your day.";
@@ -177,6 +195,25 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
     </Section>
   );
 
+  // Mira's finds from your inbox. Private until you add one, for you or for
+  // your partner (which pushes them, like any item landing on their list).
+  const emailSection = emailItems.length > 0 && (
+    <Section key="email" label="From your email">
+      {emailItems.slice(0, MAX_ROWS).map((item) => (
+        <EmailRow
+          key={item.id}
+          item={item}
+          meId={me}
+          partnerId={partner ? partnerId : null}
+          partnerName={partner}
+        />
+      ))}
+      {emailItems.length > MAX_ROWS && (
+        <div className="text-[12.5px] text-muted pl-1">+{emailItems.length - MAX_ROWS} more</div>
+      )}
+    </Section>
+  );
+
   const tomorrow = part === "evening" && partner && (
     <div key="tomorrow" className="flex flex-col gap-1.5">
       <SectionLabel label="Anything for tomorrow?" />
@@ -192,8 +229,8 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
   );
 
   const sections = part === "evening"
-    ? [handledSection, freshSection, needsYou, tomorrow]
-    : [needsYou, todaySection, freshSection, handledSection];
+    ? [handledSection, freshSection, needsYou, emailSection, tomorrow]
+    : [needsYou, emailSection, todaySection, freshSection, handledSection];
 
   return (
     <div className="bg-mira-tint border-b border-rule px-4 py-3 flex items-start gap-3">
@@ -274,7 +311,16 @@ const CardRows = ({
         <button onClick={() => onOpen(threadId)} className="flex-1 min-w-0 flex items-baseline gap-2 text-left">
           <span className="flex-1 min-w-0 truncate text-ink">{card.title}</span>
           {tag && <span className="smallcaps text-[10.5px] text-attention shrink-0">{tag}</span>}
-          {!tag && where && <span className="text-[12.5px] text-muted shrink-0">{where}</span>}
+          {!tag && card.dueAt !== undefined && (
+            <span
+              className={`text-[12.5px] shrink-0 ${isOverdue(card) ? "text-attention font-semibold" : "text-muted"}`}
+            >
+              {formatDue(card)}
+            </span>
+          )}
+          {!tag && card.dueAt === undefined && where && (
+            <span className="text-[12.5px] text-muted shrink-0">{where}</span>
+          )}
         </button>
       </div>
     ))}
@@ -283,3 +329,54 @@ const CardRows = ({
     )}
   </>
 );
+
+// One suggestion from your inbox: what it is, when, and who it came from,
+// with "Mine" / "<Partner>'s" to put it on the shared list, or × to drop it.
+const EmailRow = ({
+  item,
+  meId,
+  partnerId,
+  partnerName,
+}: {
+  item: EmailItem;
+  meId: string;
+  partnerId: string | null;
+  partnerName: string | null;
+}) => {
+  const due =
+    item.dueAt !== undefined
+      ? formatDue({ dueAt: item.dueAt, dueHasTime: item.dueHasTime, when: "" } as OpsCard)
+      : null;
+  const source = [item.fromName, item.subtitle].filter(Boolean).join(" · ");
+  const pill =
+    "text-[12.5px] font-semibold px-3 py-1 rounded-full transition-opacity hover:opacity-90";
+  return (
+    <div className="bg-paper border border-rule rounded-squircle px-3 py-2.5 flex flex-col gap-2">
+      <div className="flex items-baseline gap-2">
+        <span className="flex-1 min-w-0 text-[14.5px] text-ink leading-snug">{item.title}</span>
+        {due && <span className="text-[12.5px] text-muted shrink-0">{due}</span>}
+      </div>
+      {source && <div className="text-[12.5px] text-muted truncate -mt-1">{source}</div>}
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => void addEmailItem(item.id, meId)} className={`${pill} bg-ink text-paper`}>
+          {partnerId ? "Mine" : "Add to my list"}
+        </button>
+        {partnerId && partnerName && (
+          <button
+            onClick={() => void addEmailItem(item.id, partnerId)}
+            className={`${pill} bg-card text-ink`}
+          >
+            {partnerName}'s
+          </button>
+        )}
+        <button
+          onClick={() => void dismissEmailItem(item.id)}
+          aria-label="Not a to-do"
+          className="ml-auto h-7 w-7 rounded-full text-muted hover:text-ink text-[15px] leading-none"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+};

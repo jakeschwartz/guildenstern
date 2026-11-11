@@ -59,6 +59,16 @@ export async function getValidGoogleAccessToken(
   });
   if (!res.ok) {
     const t = await res.text();
+    // invalid_grant = the refresh token is dead for good (revoked, or the
+    // OAuth app is in Testing mode, where Google expires grants after 7
+    // days). Retrying can't fix it. Drop the row so the app shows
+    // "not connected" and offers Reconnect, instead of every call failing
+    // silently (the calendar sat empty June → November this way).
+    if (res.status === 400 && t.includes("invalid_grant")) {
+      console.warn(`[google_token] dead grant for ${userId}; disconnecting`);
+      await supabase.from("google_oauth_tokens").delete().eq("user_id", userId);
+      return null;
+    }
     throw new Error(`Google token refresh failed: ${t}`);
   }
   const tok = (await res.json()) as {

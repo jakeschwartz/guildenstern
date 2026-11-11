@@ -6,6 +6,7 @@
 import type {
   CalendarEvent,
   Conflict,
+  EmailItem,
   Message,
   OpsCard,
   Partnership,
@@ -323,8 +324,8 @@ const rundownKids: PartnershipThread = {
       sourceUserId: PARTNER_ID,
       clarification: { note: "Is it 3:00 or 3:30 on Fridays?", askedByUserId: ME_ID, askedAt: NOW - HOUR, status: "open" },
     }),
-    rundownCard({ id: "r2", title: "Call daycare about Friday's closure", createdAt: NOW - 40 * HOUR }),
-    rundownCard({ id: "r3", title: "Sign Eli's camp permission slip", createdAt: NOW - 2 * HOUR }),
+    rundownCard({ id: "r2", title: "Call daycare about Friday's closure", createdAt: NOW - 40 * HOUR, dueAt: NOW - 26 * HOUR, dueHasTime: false }),
+    rundownCard({ id: "r3", title: "Sign Eli's camp permission slip", createdAt: NOW - 2 * HOUR, dueAt: NOW + 26 * HOUR, dueHasTime: false }),
     rundownCard({ id: "r4", title: "Sneakers for Eli", owner: ME_ID, sourceUserId: PARTNER_ID, status: "done", doneAt: NOW - 2 * HOUR }),
   ],
   agentActive: true,
@@ -352,6 +353,12 @@ const rundownEvents: CalendarEvent[] = [
   { id: "e2", title: "Plumber window", start: NOW + 3 * HOUR, end: NOW + 5 * HOUR, allDay: false, location: null },
 ];
 
+// What Mira found in Jenny's inbox (Gmail sync).
+const rundownEmail: EmailItem[] = [
+  { id: "em1", fromName: "Con Edison", subject: "Your bill is ready", title: "Pay Con Ed bill", subtitle: "$142.18", dueAt: NOW + 3 * 24 * HOUR, dueHasTime: false, receivedAt: NOW - 5 * HOUR },
+  { id: "em2", fromName: "Park Slope Pediatric Dental", subject: "Appointment reminder for Eli", title: "Eli's dentist at Park Slope Pediatric", subtitle: "Bring insurance card", dueAt: NOW + 6 * 24 * HOUR, dueHasTime: true, receivedAt: NOW - 20 * HOUR },
+];
+
 export const previewStateRundown = {
   status: "ready" as const,
   error: null,
@@ -366,6 +373,7 @@ export const previewStateRundown = {
   ],
   calendarEvents: rundownEvents,
   calendarEventsFetchedAt: NOW,
+  emailItems: rundownEmail,
 };
 
 // Same people, nothing going on: the quiet one-liner.
@@ -377,4 +385,5 @@ export const previewStateRundownQuiet = {
     { ...rundownHouse, opsCards: [rundownHouse.opsCards[2]!] },
   ],
   calendarEvents: [],
+  emailItems: [],
 };

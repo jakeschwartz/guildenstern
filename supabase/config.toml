@@ -278,6 +278,12 @@ verify_jwt = false
 [functions.send-rundown]
 verify_jwt = false
 
+# scan-gmail: called by pg_cron (no token) every 30 min, and by the app with
+# the user's token right after connecting Gmail; the function verifies that
+# token itself. Scheduled runs are rate-limited per person and return counts.
+[functions.scan-gmail]
+verify_jwt = false
+
 # announce-status: trigger-invoked when ops_cards.status flips. Posts an
 # Otis chat message ("Jake's got: vaccine appt"). Same rationale.
 [functions.announce-status]

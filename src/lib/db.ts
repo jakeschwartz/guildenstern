@@ -369,6 +369,8 @@ export type OpsCardRow = {
   owner_id: string;
   when_label: string;
   bucket: OpsBucket;
+  due_at: string | null;
+  due_has_time: boolean | null;
   status: OpsCardStatus;
   clarification: unknown | null;
   created_at: string;

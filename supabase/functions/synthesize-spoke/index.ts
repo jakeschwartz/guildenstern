@@ -201,7 +201,7 @@ async function runBackgroundSynth(threadId: string, topic: string) {
 
   const { data: cards } = await supabase
     .from("ops_cards")
-    .select("title, subtitle, status, owner_id, when_label")
+    .select("title, subtitle, status, owner_id, when_label, due_at, due_has_time")
     .eq("thread_id", threadId);
 
   // Resolve user_id → display name for nicer context to Claude.
@@ -239,7 +239,21 @@ async function runBackgroundSynth(threadId: string, topic: string) {
     .map(
       (c) =>
         `- ${c.title}${c.subtitle ? ` (${c.subtitle})` : ""} [${c.status}${
-          c.when_label ? `, ${c.when_label}` : ""
+          // Absolute date when resolved ("Thu, Nov 12, 3:00 PM"), never the
+          // stale phrase "tomorrow"; fall back to the phrase for undated.
+          c.due_at
+            ? `, due ${new Date(c.due_at).toLocaleString("en-US", {
+                timeZone: "America/New_York",
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                ...(c.due_has_time
+                  ? { hour: "numeric", minute: "2-digit" }
+                  : {}),
+              })}`
+            : c.when_label
+              ? `, ${c.when_label}`
+              : ""
         }]`,
     )
     .join("\n");

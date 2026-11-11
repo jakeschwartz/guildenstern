@@ -129,8 +129,15 @@ export type OpsCard = {
   title: string;
   subtitle?: string;
   owner: UserId;
+  // The phrase the sender used ("this week", "ongoing"). Only shown when
+  // there's no resolved date.
   when: string;
   bucket: OpsBucket;
+  // Real due date, resolved when the item was filed (ms epoch). When set, the
+  // label and bucket are computed from it relative to now, so "tomorrow"
+  // becomes "Today" the next day. dueHasTime=false means date-only.
+  dueAt?: number;
+  dueHasTime?: boolean;
   status: OpsCardStatus;
   sourceMessageId: MessageId;
   sourceUserId: UserId;

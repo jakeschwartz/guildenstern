@@ -129,6 +129,118 @@ type WebhookPayload = {
   };
 };
 
+// ---------- date resolution ----------
+// "tomorrow" must become a real date the moment the item is filed, or it
+// stays "tomorrow" forever. The model is told the sender's current local
+// date/time and returns due_date (YYYY-MM-DD) + optional due_time (HH:MM);
+// we convert that local wall time in the sender's timezone to a UTC instant.
+
+const DEFAULT_TZ = "America/New_York";
+
+const isValidTz = (tz: string | null | undefined): tz is string => {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// "Wednesday, November 11, 2026, 2:34 PM" in the given zone.
+const describeNow = (now: Date, tz: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(now);
+
+// The next 15 local days as a lookup table, because models are unreliable at
+// weekday arithmetic ("Thursday" from a Wednesday came back as Friday's date).
+// With this, resolving a weekday is a lookup, not math.
+//   Upcoming days: Wed 2026-11-11 (today), Thu 2026-11-12 (tomorrow), Fri ...
+const upcomingCalendar = (now: Date, tz: string) => {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  // Today's calendar date in the sender's zone, then step whole calendar
+  // days in UTC (a date's weekday doesn't depend on timezone), so neither
+  // DST nor a far-from-UTC zone can skip or repeat a day.
+  const [y, m, d] = fmt.format(now).split("-").map(Number);
+  const utcDay = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const utcWk = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+  });
+  const days: string[] = [];
+  for (let i = 0; i < 15; i++) {
+    const at = new Date(Date.UTC(y, m - 1, d + i, 12));
+    const tag = i === 0 ? " (today)" : i === 1 ? " (tomorrow)" : "";
+    days.push(`${utcWk.format(at)} ${utcDay.format(at)}${tag}`);
+  }
+  return `Upcoming days (look up due_date here; don't compute weekdays yourself): ${days.join(", ")}`;
+};
+
+// Offset (ms) of `tz` from UTC at the given instant.
+const tzOffsetMs = (instant: number, tz: string) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(instant))
+      .map((p) => [p.type, p.value]),
+  );
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asUtc - instant;
+};
+
+// Local wall time in `tz` → UTC ISO string. Two passes handle DST edges.
+// Date-only items are pinned to local noon so the calendar day survives a
+// partner in a slightly different timezone.
+const resolveDue = (
+  dueDate: string | undefined,
+  dueTime: string | undefined,
+  tz: string,
+): { due_at: string; due_has_time: boolean } | null => {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec((dueDate ?? "").trim());
+  if (!d) return null;
+  const t = /^(\d{1,2}):(\d{2})$/.exec((dueTime ?? "").trim());
+  const hasTime = Boolean(t);
+  const [y, mo, da] = [Number(d[1]), Number(d[2]), Number(d[3])];
+  const [h, mi] = hasTime ? [Number(t![1]), Number(t![2])] : [12, 0];
+  if (mo < 1 || mo > 12 || da < 1 || da > 31 || h > 23 || mi > 59) return null;
+  const wall = Date.UTC(y, mo - 1, da, h, mi);
+  let instant = wall - tzOffsetMs(wall, tz);
+  instant = wall - tzOffsetMs(instant, tz);
+  return { due_at: new Date(instant).toISOString(), due_has_time: hasTime };
+};
+
 Deno.serve(async (req) => {
   let payload: WebhookPayload;
   try {
@@ -194,6 +306,21 @@ Deno.serve(async (req) => {
     .map((m) => `${m.author_kind === "agent" ? "Agent" : "Partner"}: ${m.body}`)
     .join("\n");
 
+  // The sender's local "now", so relative timing ("tomorrow", "Thursday")
+  // resolves to a real date. Anchor to when the message was sent, not when
+  // this function happens to run.
+  let senderTz = DEFAULT_TZ;
+  if (msg.author_user_id) {
+    const { data: senderProfile } = await supabase
+      .from("profiles")
+      .select("timezone")
+      .eq("id", msg.author_user_id)
+      .maybeSingle();
+    if (isValidTz(senderProfile?.timezone)) senderTz = senderProfile.timezone;
+  }
+  const sentAt = msg.created_at ? new Date(msg.created_at) : new Date();
+  const nowLine = `Sender's current local time: ${describeNow(sentAt, senderTz)} (${senderTz}).\n${upcomingCalendar(sentAt, senderTz)}`;
+
   // Call Claude with a tool that forces structured output.
   const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -258,8 +385,24 @@ Deno.serve(async (req) => {
                       description:
                         "today = today/tomorrow/imminent. week = this week. ongoing = recurring or no deadline. long = beyond this week.",
                     },
+                    due_date: {
+                      type: "string",
+                      description:
+                        "The actual calendar date this is due, YYYY-MM-DD, resolved against the sender's current local time given at the top ('tomorrow' = the next calendar day; a bare weekday = its NEXT occurrence, today if it's that day and still ahead; 'tonight' = today). Empty string if no specific day was given ('this week', 'soon', 'ongoing', recurring).",
+                    },
+                    due_time: {
+                      type: "string",
+                      description:
+                        "24-hour local time HH:MM if a time was stated ('at 3' in a daytime errand context = 15:00, '9am' = 09:00, 'noon' = 12:00). Empty string if no time was given.",
+                    },
                   },
-                  required: ["title", "when_label", "bucket"],
+                  required: [
+                    "title",
+                    "when_label",
+                    "bucket",
+                    "due_date",
+                    "due_time",
+                  ],
                 },
               },
               off_topic: {
@@ -312,7 +455,7 @@ Deno.serve(async (req) => {
       messages: [
         {
           role: "user",
-          content: `Recent thread context (oldest → newest):\n${context}\n\nThe most recent line (the one to decide on) is the bottom one.`,
+          content: `${nowLine}\n\nRecent thread context (oldest → newest):\n${context}\n\nThe most recent line (the one to decide on) is the bottom one.`,
         },
       ],
     }),
@@ -336,6 +479,8 @@ Deno.serve(async (req) => {
     subtitle?: string;
     when_label: string;
     bucket: "today" | "week" | "ongoing" | "long";
+    due_date?: string;
+    due_time?: string;
   };
   const decision = toolUse.input as {
     respond: boolean;
@@ -383,6 +528,12 @@ Deno.serve(async (req) => {
       owner_id: ownerId,
       when_label: it.when_label || "today",
       bucket: it.bucket || "today",
+      // Real date, resolved now in the sender's timezone. Null when the
+      // message gave no specific day ("this week", "ongoing").
+      ...(resolveDue(it.due_date, it.due_time, senderTz) ?? {
+        due_at: null,
+        due_has_time: false,
+      }),
     }));
     const { error: cardErr } = await supabase.from("ops_cards").insert(rows);
     if (cardErr) {

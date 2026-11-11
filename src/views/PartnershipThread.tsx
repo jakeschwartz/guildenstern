@@ -19,6 +19,7 @@ import { ThreadAnchor } from "../components/ThreadAnchor";
 import { Sheet } from "../components/Sheet";
 import { Avatar } from "../components/Avatar";
 import { formatClock } from "../lib/time";
+import { effectiveBucket, formatDue, isOverdue } from "../lib/due";
 import {
   getCachedSpokeSummary,
   refreshSpokeSummary,
@@ -1179,6 +1180,10 @@ const OpsCardRow = ({
   const clarification = card.clarification;
   const waitingClarify = clarification?.status === "open";
   const [clarifyOpen, setClarifyOpen] = useState(false);
+  // "Tomorrow 3pm" computed live from the resolved date; falls back to the
+  // sender's phrase ("this week") for undated items.
+  const dueLabel = formatDue(card);
+  const overdue = !done && isOverdue(card);
 
   const onAccept = () => {
     void setOpsCardStatus(threadId, card.id, "accepted");
@@ -1249,10 +1254,12 @@ const OpsCardRow = ({
               </span>
             )}
           </div>
-          {(card.when || card.subtitle) && (
+          {(dueLabel || card.subtitle) && (
             <div className="text-[11px] text-muted mt-0.5">
-              {card.when}
-              {card.when && card.subtitle && " · "}
+              <span className={overdue ? "text-attention font-semibold" : ""}>
+                {dueLabel}
+              </span>
+              {dueLabel && card.subtitle && " · "}
               {card.subtitle}
             </div>
           )}
@@ -1505,14 +1512,22 @@ const OpsQueue = ({
     ongoing: [],
     long: [],
   };
+  // Bucket from the real due date when there is one, so items slide from
+  // This week into Today on their own.
+  const now = Date.now();
   for (const c of cards) {
-    byBucket[c.bucket].push(c);
+    byBucket[effectiveBucket(c, now)].push(c);
   }
   for (const k of BUCKET_ORDER) {
     byBucket[k].sort((a, b) => {
       const aDone = a.status === "done" ? 1 : 0;
       const bDone = b.status === "done" ? 1 : 0;
       if (aDone !== bDone) return aDone - bDone;
+      // Dated items first, soonest first; undated keep filing order.
+      if (a.dueAt !== undefined && b.dueAt !== undefined)
+        return a.dueAt - b.dueAt;
+      if (a.dueAt !== undefined) return -1;
+      if (b.dueAt !== undefined) return 1;
       return a.createdAt - b.createdAt;
     });
   }

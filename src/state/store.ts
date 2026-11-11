@@ -126,6 +126,8 @@ const opsCardRowToOpsCard = (row: db.OpsCardRow): OpsCard => ({
   owner: row.owner_id,
   when: row.when_label,
   bucket: row.bucket,
+  dueAt: row.due_at ? new Date(row.due_at).getTime() : undefined,
+  dueHasTime: row.due_has_time ?? false,
   status: row.status,
   sourceMessageId: row.source_message_id ?? "",
   sourceUserId: row.source_user_id ?? "",

@@ -637,3 +637,42 @@ export async function recordAppOpen(timezone: string): Promise<void> {
   const { error } = await supabase.rpc("record_app_open", { p_timezone: timezone });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Claude / ChatGPT connector (supabase/functions/mcp). The raw token exists
+// only in the link we hand back once; the server keeps its hash. One active
+// link per person: making a new one turns the old one off.
+// ---------------------------------------------------------------------------
+
+export const mcpLinkFor = (token: string) =>
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mcp/${token}`;
+
+export type McpLinkStatus = { active: boolean; createdAt?: number; lastUsedAt?: number };
+
+export async function getMcpLinkStatus(): Promise<McpLinkStatus> {
+  const { data, error } = await supabase
+    .from("mcp_tokens")
+    .select("created_at, last_used_at")
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return { active: false };
+  return {
+    active: true,
+    createdAt: Date.parse(data.created_at),
+    lastUsedAt: data.last_used_at ? Date.parse(data.last_used_at) : undefined,
+  };
+}
+
+export async function createMcpLink(): Promise<string> {
+  const { data, error } = await supabase.rpc("create_mcp_token");
+  if (error) throw error;
+  return mcpLinkFor(data as string);
+}
+
+export async function revokeMcpLinks(): Promise<void> {
+  const { error } = await supabase.rpc("revoke_mcp_tokens");
+  if (error) throw error;
+}

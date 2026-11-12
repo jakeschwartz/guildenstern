@@ -7,6 +7,7 @@ import { PartnershipThread } from "./views/PartnershipThread";
 import { PersonalThread } from "./views/PersonalThread";
 import { Login } from "./views/Login";
 import { InvitePartner } from "./views/InvitePartner";
+import { ConnectAssistant } from "./views/ConnectAssistant";
 import { JoinPartnership } from "./views/JoinPartnership";
 import { OpenSpoke } from "./views/OpenSpoke";
 import { setRundownPreviewClock } from "./components/Rundown";
@@ -237,6 +238,7 @@ export const App = () => {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [spokeOpen, setSpokeOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [themeIndicator, setThemeIndicator] = useState(getTheme());
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleScopes, setGoogleScopes] = useState<string[]>([]);
@@ -279,6 +281,7 @@ export const App = () => {
     setInviteOpen(false);
     setJoinOpen(false);
     setSpokeOpen(false);
+    setAssistantOpen(false);
   };
 
   useEffect(() => {
@@ -484,6 +487,22 @@ export const App = () => {
           <li>
             <button
               onClick={() => {
+                closeAllSheets();
+                setAssistantOpen(true);
+              }}
+              className="w-full text-left px-5 py-4 hover:bg-card/60 transition-colors"
+            >
+              <div className="text-[15px] font-semibold text-ink tracking-tight">
+                Connect Claude or ChatGPT
+              </div>
+              <div className="text-[12.5px] text-muted mt-0.5">
+                Plan in your assistant, land it on your list
+              </div>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
                 setTestRundown("Sending…");
                 sendTestRundown()
                   .then(setTestRundown)
@@ -538,6 +557,14 @@ export const App = () => {
             </button>
           </li>
         </ul>
+      </Sheet>
+
+      <Sheet
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        onForceClose={closeAllSheets}
+      >
+        <ConnectAssistant onClose={closeAllSheets} />
       </Sheet>
 
       <Sheet

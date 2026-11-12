@@ -1071,6 +1071,8 @@ const WhereWeArePane = ({
         </div>
       )}
 
+      <PlanWithAssistant title={title} summary={summary} />
+
       {/* Conversation with Otis — shared between both partners, lives in the
           same thread but tagged context='otis_chat' so it doesn't bleed
           into the main chat. */}
@@ -1134,6 +1136,60 @@ const WhereWeArePane = ({
           Ping
         </button>
       </div>
+    </div>
+  );
+};
+
+// "Plan with Claude / ChatGPT": hand the topic to the person's own assistant.
+// With the Guildenstern connector added there, the assistant reads the thread
+// and files items itself; without it, the summary is on the clipboard to
+// paste. The URL carries only the topic title, never the summary.
+const PlanWithAssistant = ({
+  title,
+  summary,
+}: {
+  title: string;
+  summary: SpokeSummary | null;
+}) => {
+  const [copied, setCopied] = useState(false);
+  const open = async (target: "claude" | "chatgpt") => {
+    const brief = [
+      `${title} (from Guildenstern)`,
+      summary?.summary,
+      ...(summary?.sections ?? []).map(
+        (s) => `${s.label}:\n${s.items.map((i) => `- [${i.status}] ${i.text}`).join("\n")}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    try {
+      await navigator.clipboard.writeText(brief);
+      setCopied(true);
+    } catch {
+      // clipboard is a nicety; the connector is the main path
+    }
+    const prompt = `Help me plan "${title}". Use Guildenstern to read our "${title}" thread and what's open, then suggest next steps; add items there when I agree. (If Guildenstern isn't connected, ask me to paste the summary I copied.)`;
+    const base = target === "claude" ? "https://claude.ai/new?q=" : "https://chatgpt.com/?q=";
+    // A top-level navigation leaves the web view: iOS opens the Claude or
+    // ChatGPT app if installed (universal link), else Safari.
+    window.location.href = base + encodeURIComponent(prompt);
+  };
+  const btn =
+    "flex-1 h-9 rounded-xl border border-rule text-[12.5px] text-ink hover:bg-card/60 transition-colors";
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="smallcaps text-[10.5px] text-muted">plan it with</div>
+      <div className="flex gap-2">
+        <button className={btn} onClick={() => void open("claude")}>
+          Claude
+        </button>
+        <button className={btn} onClick={() => void open("chatgpt")}>
+          ChatGPT
+        </button>
+      </div>
+      {copied && (
+        <div className="text-[11px] text-muted">Summary copied, in case you need to paste it.</div>
+      )}
     </div>
   );
 };

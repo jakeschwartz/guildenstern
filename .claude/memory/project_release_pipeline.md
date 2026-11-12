@@ -28,3 +28,5 @@ TestFlight builds expire 90 days after upload. Build 49 (2026-06-20) expired aro
 
 **Why:** Not knowing which machine could ship cost a session a lot of investigation.
 **How to apply:** Before shipping, check the current machine against the list above. Related: [[app-state-build-49]].
+
+On 2026-11-12 the original build machine (Jakes-Mac-mini, has the ASC .p8) was upgraded to Xcode 27.2 (replacing 16.2, after freeing disk) and shipped build 54 via the API key path end to end, including tester-group assignment. Both machines can ship now. Supabase CLI: use `npx --yes supabase@2` — v3 rejects `[inbucket]` in config.toml.

@@ -179,6 +179,20 @@ export type EmailItem = {
   receivedAt: number | null;
 };
 
+// Something Mira spotted in the next few days of your calendars
+// (scan-calendar): a heads-up worth knowing, or prep an event needs first.
+export type CalendarNote = {
+  id: string;
+  kind: "heads_up" | "prep";
+  note: string;
+  prepTitle?: string;
+  eventTitle: string | null;
+  eventStart: number | null;
+  eventAllDay: boolean;
+  dueAt?: number;
+  dueHasTime: boolean;
+};
+
 // Normalized Google Calendar event. Returned by the fetch-google-events
 // edge function which collapses Google's dateTime/date variation into a
 // single ms epoch + allDay flag, so the client doesn't have to.

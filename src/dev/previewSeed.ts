@@ -4,6 +4,7 @@
 // from App.tsx when a hash route is detected, and only on web.
 
 import type {
+  CalendarNote,
   CalendarEvent,
   Conflict,
   EmailItem,
@@ -359,6 +360,12 @@ const rundownEmail: EmailItem[] = [
   { id: "em2", fromName: "Park Slope Pediatric Dental", subject: "Appointment reminder for Eli", title: "Eli's dentist at Park Slope Pediatric", subtitle: "Bring insurance card", dueAt: NOW + 6 * 24 * HOUR, dueHasTime: true, receivedAt: NOW - 20 * HOUR },
 ];
 
+// What Mira spotted in the next few days of their calendars (scan-calendar).
+const rundownCalendarNotes: CalendarNote[] = [
+  { id: "cn1", kind: "heads_up", note: "School's closed tomorrow until 1 for parent-teacher conferences.", eventTitle: "Closed for conferences", eventStart: NOW + 20 * HOUR, eventAllDay: false, dueHasTime: false },
+  { id: "cn2", kind: "prep", note: "Maya's party is Saturday at 2.", prepTitle: "Buy a gift for Maya's party", eventTitle: "Maya's 5th birthday", eventStart: NOW + 3 * 24 * HOUR, eventAllDay: false, dueAt: NOW + 2 * 24 * HOUR, dueHasTime: false },
+];
+
 export const previewStateRundown = {
   status: "ready" as const,
   error: null,
@@ -374,6 +381,7 @@ export const previewStateRundown = {
   calendarEvents: rundownEvents,
   calendarEventsFetchedAt: NOW,
   emailItems: rundownEmail,
+  calendarNotes: rundownCalendarNotes,
 };
 
 // Same people, nothing going on: the quiet one-liner.
@@ -386,4 +394,5 @@ export const previewStateRundownQuiet = {
   ],
   calendarEvents: [],
   emailItems: [],
+  calendarNotes: [],
 };

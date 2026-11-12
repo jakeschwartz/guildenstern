@@ -629,6 +629,73 @@ export function subscribeToEmailItems(
   };
 }
 
+// ---------- calendar notes (scan-calendar) ----------
+
+export type CalendarNoteRow = {
+  id: string;
+  user_id: string | null;
+  kind: "heads_up" | "prep" | "question";
+  note: string;
+  prep_title: string | null;
+  event_title: string | null;
+  event_start: string | null;
+  event_all_day: boolean;
+  due_at: string | null;
+  due_has_time: boolean;
+  status: string;
+};
+
+const CALENDAR_NOTE_COLS =
+  "id,user_id,kind,note,prep_title,event_title,event_start,event_all_day,due_at,due_has_time,status";
+
+// Your open heads-ups and prep suggestions for events that haven't passed.
+export async function getOpenCalendarNotes(userId: string): Promise<CalendarNoteRow[]> {
+  const { data, error } = await supabase
+    .from("calendar_notes")
+    .select(CALENDAR_NOTE_COLS)
+    .eq("user_id", userId)
+    .eq("status", "new")
+    .gte("event_start", new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
+    .order("event_start")
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as CalendarNoteRow[];
+}
+
+export async function addCalendarPrep(noteId: string, ownerId: string): Promise<string> {
+  const { data, error } = await supabase.rpc("add_calendar_prep", {
+    p_note_id: noteId,
+    p_owner: ownerId,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function dismissCalendarNote(noteId: string): Promise<void> {
+  const { error } = await supabase.rpc("dismiss_calendar_note", { p_note_id: noteId });
+  if (error) throw error;
+}
+
+export function subscribeToCalendarNotes(
+  userId: string,
+  onChange: (event: "INSERT" | "UPDATE" | "DELETE", row: CalendarNoteRow) => void,
+) {
+  const channel = supabase
+    .channel(`calendar_notes:${userId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "calendar_notes", filter: `user_id=eq.${userId}` },
+      (payload) => {
+        const event = payload.eventType as "INSERT" | "UPDATE" | "DELETE";
+        onChange(event, (event === "DELETE" ? payload.old : payload.new) as CalendarNoteRow);
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 // ---------- activity ----------
 
 // One row per app open (launch or return to foreground), plus the device's

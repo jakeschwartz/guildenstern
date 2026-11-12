@@ -20,6 +20,7 @@ import { supabase } from "../lib/supabase";
 import type {
   Attachment,
   CalendarEvent,
+  CalendarNote,
   EmailItem,
   Message,
   MessageAuthor,
@@ -53,6 +54,7 @@ type State = {
   // Household items Mira found in your email. Private suggestions until you
   // add one to the shared list. Empty unless Gmail is connected.
   emailItems: EmailItem[];
+  calendarNotes: CalendarNote[];
 };
 
 const initial: State = {
@@ -65,6 +67,7 @@ const initial: State = {
   calendarEvents: [],
   calendarEventsFetchedAt: null,
   emailItems: [],
+  calendarNotes: [],
 };
 
 let state: State = initial;
@@ -282,6 +285,7 @@ export const hydrate = async (session: Session) => {
     calendarEvents: [],
     calendarEventsFetchedAt: null,
     emailItems: [],
+    calendarNotes: [],
   });
   teardownRealtime();
 
@@ -363,6 +367,7 @@ export const hydrate = async (session: Session) => {
       threads: [personalThread, ...partnershipThreads],
     });
     void loadEmailItems(session.user.id);
+    void loadCalendarNotes(session.user.id);
   } catch (e) {
     console.error("[guildenstern] hydrate failed", e);
     setState({
@@ -432,6 +437,67 @@ export const dismissEmailItem = async (itemId: string) => {
   } catch (e) {
     console.error("[guildenstern] dismissEmailItem failed", e);
     setState({ emailItems: before });
+  }
+};
+
+// ---------- calendar notes (scan-calendar) ----------
+
+const calendarNoteRowToNote = (r: db.CalendarNoteRow): CalendarNote => ({
+  id: r.id,
+  kind: r.kind === "prep" ? "prep" : "heads_up",
+  note: r.note,
+  prepTitle: r.prep_title ?? undefined,
+  eventTitle: r.event_title,
+  eventStart: r.event_start ? new Date(r.event_start).getTime() : null,
+  eventAllDay: r.event_all_day,
+  dueAt: r.due_at ? new Date(r.due_at).getTime() : undefined,
+  dueHasTime: r.due_has_time,
+});
+
+const isOpenNoteRow = (r: db.CalendarNoteRow) =>
+  r.status === "new" && (r.kind === "heads_up" || r.kind === "prep");
+
+const byEventStart = (a: CalendarNote, b: CalendarNote) =>
+  (a.eventStart ?? Infinity) - (b.eventStart ?? Infinity);
+
+const loadCalendarNotes = async (userId: string) => {
+  try {
+    const rows = await db.getOpenCalendarNotes(userId);
+    setState({ calendarNotes: rows.filter(isOpenNoteRow).map(calendarNoteRowToNote) });
+  } catch (e) {
+    console.warn("[guildenstern] calendar notes load failed", e);
+  }
+  realtimeUnsubs.push(
+    db.subscribeToCalendarNotes(userId, (event, row) => {
+      const rest = state.calendarNotes.filter((n) => n.id !== row.id);
+      const next =
+        event !== "DELETE" && isOpenNoteRow(row) ? [...rest, calendarNoteRowToNote(row)] : rest;
+      setState({ calendarNotes: next.sort(byEventStart) });
+    }),
+  );
+};
+
+export const addCalendarPrep = async (noteId: string, ownerId: string) => {
+  const before = state.calendarNotes;
+  setState({ calendarNotes: before.filter((n) => n.id !== noteId) });
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.addCalendarPrep(noteId, ownerId);
+  } catch (e) {
+    console.error("[guildenstern] addCalendarPrep failed", e);
+    setState({ calendarNotes: before });
+  }
+};
+
+export const dismissCalendarNote = async (noteId: string) => {
+  const before = state.calendarNotes;
+  setState({ calendarNotes: before.filter((n) => n.id !== noteId) });
+  if (state.currentUserId.startsWith("preview-")) return;
+  try {
+    await db.dismissCalendarNote(noteId);
+  } catch (e) {
+    console.error("[guildenstern] dismissCalendarNote failed", e);
+    setState({ calendarNotes: before });
   }
 };
 

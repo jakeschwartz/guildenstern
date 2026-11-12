@@ -325,3 +325,6 @@ verify_jwt = false
 
 [functions.site]
 verify_jwt = false
+
+[functions.scan-calendar]
+verify_jwt = false

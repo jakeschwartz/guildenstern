@@ -7,13 +7,15 @@
 import { useEffect } from "react";
 import { Avatar } from "./Avatar";
 import {
+  addCalendarPrep,
   addEmailItem,
+  dismissCalendarNote,
   dismissEmailItem,
   refreshCalendarEvents,
   setOpsCardStatus,
   useStore,
 } from "../state/store";
-import type { EmailItem, OpsCard, PersonalThread } from "../types";
+import type { CalendarNote, EmailItem, OpsCard, PersonalThread } from "../types";
 import { formatRelative } from "../lib/time";
 import { formatDue, isOverdue } from "../lib/due";
 
@@ -53,6 +55,7 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
   const events = useStore((s) => s.calendarEvents);
   const eventsFetchedAt = useStore((s) => s.calendarEventsFetchedAt);
   const emailItems = useStore((s) => s.emailItems);
+  const calendarNotes = useStore((s) => s.calendarNotes);
 
   useEffect(() => {
     if (!eventsFetchedAt || Date.now() - eventsFetchedAt > CALENDAR_STALE_MS) {
@@ -117,9 +120,12 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
       .filter((e) => !e.allDay && e.start > now && e.start < endOfToday)
       .sort((a, b) => a.start - b.start);
 
+  // Mira's look at the next few days: heads-ups first, then prep.
+  const comingUp = calendarNotes.filter((n) => n.eventStart === null || n.eventStart > now - 6 * HOUR);
+
   const quiet =
     !questions.length && !list.length && !fresh.length && !handled.length &&
-    !today.length && !emailItems.length;
+    !today.length && !emailItems.length && !comingUp.length;
 
   let greeting: string;
   if (part === "morning") greeting = myFirst ? `Morning, ${myFirst}. Here's your day.` : "Morning. Here's your day.";
@@ -214,6 +220,23 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
     </Section>
   );
 
+  const comingUpSection = comingUp.length > 0 && (
+    <Section key="coming" label="Coming up">
+      {comingUp.filter((n) => n.kind === "heads_up").slice(0, MAX_ROWS).map((n) => (
+        <HeadsUpRow key={n.id} note={n} now={now} />
+      ))}
+      {comingUp.filter((n) => n.kind === "prep").slice(0, MAX_ROWS).map((n) => (
+        <PrepRow
+          key={n.id}
+          note={n}
+          meId={me}
+          partnerId={partner ? partnerId : null}
+          partnerName={partner}
+        />
+      ))}
+    </Section>
+  );
+
   const tomorrow = part === "evening" && partner && (
     <div key="tomorrow" className="flex flex-col gap-1.5">
       <SectionLabel label="Anything for tomorrow?" />
@@ -229,8 +252,8 @@ export const Rundown = ({ miraThread, onOpen }: Props) => {
   );
 
   const sections = part === "evening"
-    ? [handledSection, freshSection, needsYou, emailSection, tomorrow]
-    : [needsYou, emailSection, todaySection, freshSection, handledSection];
+    ? [handledSection, freshSection, needsYou, comingUpSection, emailSection, tomorrow]
+    : [needsYou, comingUpSection, emailSection, todaySection, freshSection, handledSection];
 
   return (
     <div className="bg-mira-tint border-b border-rule px-4 py-3 flex items-start gap-3">
@@ -372,6 +395,78 @@ const EmailRow = ({
         <button
           onClick={() => void dismissEmailItem(item.id)}
           aria-label="Not a to-do"
+          className="ml-auto h-7 w-7 rounded-full text-muted hover:text-ink text-[15px] leading-none"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// "Thu", "Tomorrow", "Today" for an event's day, relative to now.
+const dayLabel = (ms: number | null, now: number) => {
+  if (ms === null) return null;
+  const startOf = (t: number) => new Date(t).setHours(0, 0, 0, 0);
+  const days = Math.round((startOf(ms) - startOf(now)) / (24 * HOUR));
+  if (days <= 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  return new Date(ms).toLocaleDateString([], { weekday: "short" });
+};
+
+// Something worth knowing in the next few days. × = got it.
+const HeadsUpRow = ({ note, now }: { note: CalendarNote; now: number }) => (
+  <div className="flex items-start gap-2.5 text-[14.5px] leading-snug">
+    <span className="text-[12.5px] text-muted shrink-0 w-[4.5rem] pt-px">{dayLabel(note.eventStart, now)}</span>
+    <span className="flex-1 min-w-0 text-ink">{note.note}</span>
+    <button
+      onClick={() => void dismissCalendarNote(note.id)}
+      aria-label="Got it"
+      className="h-6 w-6 -mt-0.5 rounded-full text-muted hover:text-ink text-[15px] leading-none shrink-0"
+    >
+      ×
+    </button>
+  </div>
+);
+
+// Prep an event needs first, with Mine / <Partner>'s to put it on the list.
+const PrepRow = ({
+  note,
+  meId,
+  partnerId,
+  partnerName,
+}: {
+  note: CalendarNote;
+  meId: string;
+  partnerId: string | null;
+  partnerName: string | null;
+}) => {
+  const due =
+    note.dueAt !== undefined
+      ? formatDue({ dueAt: note.dueAt, dueHasTime: note.dueHasTime, when: "" } as OpsCard)
+      : null;
+  const pill = "text-[12.5px] font-semibold px-3 py-1 rounded-full transition-opacity hover:opacity-90";
+  return (
+    <div className="bg-paper border border-rule rounded-squircle px-3 py-2.5 flex flex-col gap-2">
+      <div className="flex items-baseline gap-2">
+        <span className="flex-1 min-w-0 text-[14.5px] text-ink leading-snug">{note.prepTitle ?? note.note}</span>
+        {due && <span className="text-[12.5px] text-muted shrink-0">{due}</span>}
+      </div>
+      {note.eventTitle && (
+        <div className="text-[12.5px] text-muted truncate -mt-1">For {note.eventTitle}</div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => void addCalendarPrep(note.id, meId)} className={`${pill} bg-ink text-paper`}>
+          {partnerId ? "Mine" : "Add to my list"}
+        </button>
+        {partnerId && partnerName && (
+          <button onClick={() => void addCalendarPrep(note.id, partnerId)} className={`${pill} bg-card text-ink`}>
+            {partnerName}'s
+          </button>
+        )}
+        <button
+          onClick={() => void dismissCalendarNote(note.id)}
+          aria-label="Not needed"
           className="ml-auto h-7 w-7 rounded-full text-muted hover:text-ink text-[15px] leading-none"
         >
           ×

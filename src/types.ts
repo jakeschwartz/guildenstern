@@ -185,6 +185,8 @@ export type CalendarNote = {
   id: string;
   kind: "heads_up" | "prep";
   note: string;
+  // The note with key words in **…**, for bolding. Absent on older rows.
+  noteMarked?: string;
   prepTitle?: string;
   eventTitle: string | null;
   eventStart: number | null;

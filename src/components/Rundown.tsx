@@ -404,6 +404,24 @@ const EmailRow = ({
   );
 };
 
+// Mira's **key words** in bold ink, the rest quieter, so a glance catches
+// what matters.
+const Marked = ({ text }: { text: string }) => {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  if (parts.length === 1) return <span className="text-ink">{text}</span>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <strong key={i} className="font-semibold text-ink">{part}</strong>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
+  );
+};
+
 // "Thu", "Tomorrow", "Today" for an event's day, relative to now.
 const dayLabel = (ms: number | null, now: number) => {
   if (ms === null) return null;
@@ -418,7 +436,9 @@ const dayLabel = (ms: number | null, now: number) => {
 const HeadsUpRow = ({ note, now }: { note: CalendarNote; now: number }) => (
   <div className="flex items-start gap-2.5 text-[14.5px] leading-snug">
     <span className="text-[12.5px] text-muted shrink-0 w-[4.5rem] pt-px">{dayLabel(note.eventStart, now)}</span>
-    <span className="flex-1 min-w-0 text-ink">{note.note}</span>
+    <span className="flex-1 min-w-0 text-muted">
+      <Marked text={note.noteMarked ?? note.note} />
+    </span>
     <button
       onClick={() => void dismissCalendarNote(note.id)}
       aria-label="Got it"

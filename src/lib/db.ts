@@ -636,6 +636,7 @@ export type CalendarNoteRow = {
   user_id: string | null;
   kind: "heads_up" | "prep" | "question";
   note: string;
+  note_marked: string | null;
   prep_title: string | null;
   event_title: string | null;
   event_start: string | null;
@@ -646,7 +647,7 @@ export type CalendarNoteRow = {
 };
 
 const CALENDAR_NOTE_COLS =
-  "id,user_id,kind,note,prep_title,event_title,event_start,event_all_day,due_at,due_has_time,status";
+  "id,user_id,kind,note,note_marked,prep_title,event_title,event_start,event_all_day,due_at,due_has_time,status";
 
 // Your open heads-ups and prep suggestions for events that haven't passed.
 export async function getOpenCalendarNotes(userId: string): Promise<CalendarNoteRow[]> {

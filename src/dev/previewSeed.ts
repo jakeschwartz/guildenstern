@@ -362,7 +362,7 @@ const rundownEmail: EmailItem[] = [
 
 // What Mira spotted in the next few days of their calendars (scan-calendar).
 const rundownCalendarNotes: CalendarNote[] = [
-  { id: "cn1", kind: "heads_up", note: "School's closed tomorrow until 1 for parent-teacher conferences.", eventTitle: "Closed for conferences", eventStart: NOW + 20 * HOUR, eventAllDay: false, dueHasTime: false },
+  { id: "cn1", kind: "heads_up", note: "School's closed tomorrow until 1 for parent-teacher conferences.", noteMarked: "**School's closed** tomorrow **until 1** for parent-teacher conferences.", eventTitle: "Closed for conferences", eventStart: NOW + 20 * HOUR, eventAllDay: false, dueHasTime: false },
   { id: "cn2", kind: "prep", note: "Maya's party is Saturday at 2.", prepTitle: "Buy a gift for Maya's party", eventTitle: "Maya's 5th birthday", eventStart: NOW + 3 * 24 * HOUR, eventAllDay: false, dueAt: NOW + 2 * 24 * HOUR, dueHasTime: false },
 ];
 

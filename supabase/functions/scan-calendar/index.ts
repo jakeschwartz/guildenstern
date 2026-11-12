@@ -201,6 +201,8 @@ Produce three kinds of output:
 
 Privacy: each person's own calendar is theirs. Only bring up one partner's personal event to the other (in a heads_up for the other, or in a question) when it affects the household (they're away, out for the evening, unavailable for pickup), and then say only what's needed ("Jake's away Thursday night"), never the private details (no medical, therapy, work, or personal appointment titles of the other person).
 
+Emphasis: in each heads_up note and each prep "why", wrap the 1–3 things a skimmer must catch in **double asterisks**: the day or time, and what's happening ("**Eli's school is closed** tomorrow **until 1**"). Keep each bolded part short (a few words). Don't bold whole sentences. Questions are plain text, no asterisks.
+
 Dates: use the calendar lookup to resolve days. Event ids (e1, e2, ...) must come from the list. Return empty lists when nothing qualifies; that is a good answer.`;
 
 const schemaFor = (people: Person[]) => {
@@ -315,6 +317,10 @@ const askModel = async (people: Person[], connected: Person[], events: Ev[], ope
   return JSON.parse(text) as Found;
 };
 
+// "**a** b" → "a b" (plain) for older clients and chat messages.
+const plain = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*\*/g, "").trim();
+const marked = (s: string) => (s.includes("**") ? s.trim() : null);
+
 // ---------- one household ----------
 
 const defaultThread = async (partnershipId: string) => {
@@ -395,7 +401,8 @@ async function scanHousehold(
           event_start: new Date(ev.start).toISOString(),
           event_all_day: ev.allDay,
           _when: fmtWhen(ev, tz),
-          note: h.note.trim(),
+          note: plain(h.note),
+          note_marked: marked(h.note),
           status: "new",
         });
       }
@@ -415,8 +422,9 @@ async function scanHousehold(
           event_start: new Date(ev.start).toISOString(),
           event_all_day: ev.allDay,
           _when: fmtWhen(ev, tz),
-          note: (pr.why ?? "").trim() || pr.title.trim(),
-          prep_title: pr.title.trim(),
+          note: plain(pr.why ?? "") || plain(pr.title),
+          note_marked: marked(pr.why ?? ""),
+          prep_title: plain(pr.title),
           due_at: due?.due_at ?? null,
           due_has_time: due?.due_has_time ?? false,
           status: "new",
@@ -435,7 +443,7 @@ async function scanHousehold(
         event_start: new Date(ev.start).toISOString(),
         event_all_day: ev.allDay,
         _when: fmtWhen(ev, tz),
-        note: q.question.trim(),
+        note: plain(q.question),
         status: "pending",
       });
     }
@@ -452,7 +460,7 @@ async function scanHousehold(
           for: label(r),
           event: r.event_title,
           when: r._when,
-          note: r.note,
+          note: r.note_marked ?? r.note,
           ...(r.prep_title ? { todo: r.prep_title } : {}),
           ...(r.due_at ? { due: r.due_at } : {}),
         })),

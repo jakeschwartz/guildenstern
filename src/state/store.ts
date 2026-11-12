@@ -446,6 +446,7 @@ const calendarNoteRowToNote = (r: db.CalendarNoteRow): CalendarNote => ({
   id: r.id,
   kind: r.kind === "prep" ? "prep" : "heads_up",
   note: r.note,
+  noteMarked: r.note_marked ?? undefined,
   prepTitle: r.prep_title ?? undefined,
   eventTitle: r.event_title,
   eventStart: r.event_start ? new Date(r.event_start).getTime() : null,

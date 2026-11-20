@@ -207,6 +207,12 @@ create trigger record_card_status_changed
 
 revoke all on function public.record_card_status_changed() from public, anon, authenticated;
 
+-- The trigger runs as whoever UPDATEs ops_cards. Without execute, every
+-- in-app status change fails with "permission denied for function". PostgREST
+-- does not expose functions that return trigger, so this is not an RPC.
+-- anon stays revoked.
+grant execute on function public.record_card_status_changed() to postgres, authenticated, service_role;
+
 -- 4. MCP updates should be attributed as surface=mcp.
 create or replace function public.mcp_update_item(
   p_user uuid,
@@ -280,9 +286,32 @@ declare
   v_tz text;
   v_until timestamptz;
   v_partnership uuid;
+  v_receipt_card uuid;
 begin
   if p_action not in ('done', 'tomorrow', 'pass') then
     raise exception 'invalid action';
+  end if;
+
+  -- Service role is the only caller. Still require the push to be this
+  -- user's and about this card, so a mismatched RPC call cannot act.
+  if not exists (
+    select 1
+    from public.push_log l
+    where l.id = p_push_id
+      and l.user_id = p_user_id
+      and l.card_id = p_card_id
+  ) then
+    raise exception 'forbidden';
+  end if;
+
+  -- Serialize actions on this card so Done and Pass cannot both apply.
+  select * into v_card
+  from public.ops_cards
+  where id = p_card_id
+  for update;
+
+  if not found then
+    raise exception 'card not found';
   end if;
 
   insert into public.card_action_receipts (push_id, action, card_id)
@@ -291,13 +320,17 @@ begin
   returning true into v_inserted;
 
   if v_inserted is not true then
+    select r.card_id into v_receipt_card
+    from public.card_action_receipts r
+    where r.push_id = p_push_id
+      and r.action = p_action;
+    if v_receipt_card is distinct from p_card_id then
+      raise exception 'forbidden';
+    end if;
+    -- Already applied. Do not re-check "open": a second Done is success.
     return jsonb_build_object('ok', true, 'idempotent', true, 'action', p_action, 'card_id', p_card_id);
   end if;
 
-  select * into v_card from public.ops_cards where id = p_card_id;
-  if v_card.id is null then
-    raise exception 'card not found';
-  end if;
   if v_card.owner_id is distinct from p_user_id then
     raise exception 'not the owner';
   end if;
@@ -310,7 +343,10 @@ begin
   perform set_config('guildenstern.acted_by', p_user_id::text, true);
 
   if p_action = 'done' then
-    update public.ops_cards set status = 'done' where id = p_card_id;
+    update public.ops_cards
+    set status = 'done',
+        snoozed_until = null
+    where id = p_card_id;
   elsif p_action = 'pass' then
     select t.partnership_id into v_partnership
     from public.threads t
@@ -319,26 +355,38 @@ begin
     from public.partnership_members pm
     where pm.partnership_id = v_partnership
       and pm.user_id is distinct from p_user_id
+    order by pm.user_id
     limit 1;
     if v_partner is null then
       raise exception 'no partner to pass to';
     end if;
     -- Same shape as the in-app Pass path: new owner, status reset to pending.
-    -- notify_otis_on_card_status_change fires on the owner change.
+    -- Clear a snooze so the new owner is not hidden until the previous
+    -- owner's morning. notify_otis_on_card_status_change fires on the owner
+    -- change.
     update public.ops_cards
-    set owner_id = v_partner, status = 'pending'
+    set owner_id = v_partner,
+        status = 'pending',
+        snoozed_until = null
     where id = p_card_id;
   elsif p_action = 'tomorrow' then
     -- Snooze only. Do not change status or owner, so Otis does not announce.
-    select coalesce(nullif(btrim(timezone), ''), 'America/New_York')
+    -- Qualify the column: an unqualified `timezone` collides with the function.
+    select coalesce(nullif(btrim(p.timezone), ''), 'America/New_York')
       into v_tz
-    from public.profiles
-    where id = p_user_id;
+    from public.profiles p
+    where p.id = p_user_id;
     if v_tz is null then
       v_tz := 'America/New_York';
     end if;
     -- 08:00 local tomorrow (the start of the morning rundown slot).
-    v_until := ((timezone(v_tz, now()))::date + 1 + time '08:00') at time zone v_tz;
+    begin
+      v_until := ((timezone(v_tz, now()))::date + 1 + time '08:00') at time zone v_tz;
+    exception
+      when invalid_parameter_value then
+        v_tz := 'America/New_York';
+        v_until := ((timezone(v_tz, now()))::date + 1 + time '08:00') at time zone v_tz;
+    end;
     update public.ops_cards
     set snoozed_until = v_until
     where id = p_card_id;

@@ -11,20 +11,23 @@ const NOW = 1_700_000_000;
 type ApplyCall = { pushId: string; cardId: string; userId: string; action: string };
 
 function mockDb(opts: {
-  attempts?: number;
+  attempts?: number | null;
   missingLog?: boolean;
   logCardId?: string | null;
   logUserId?: string;
+  logPushId?: string;
+  pushLogError?: boolean;
   apply?: (call: ApplyCall) => Promise<{ ok: true; idempotent: boolean; action: string; card_id: string }>;
 }): Db & { applies: ApplyCall[] } {
   const applies: ApplyCall[] = [];
   const db: Db & { applies: ApplyCall[] } = {
     applies,
-    noteAttempt: () => Promise.resolve(opts.attempts ?? 1),
+    noteAttempt: () => Promise.resolve(opts.attempts === undefined ? 1 : opts.attempts),
     getPushLog: (pushId: string) => {
+      if (opts.pushLogError) return Promise.reject(new Error("push_log_unavailable"));
       if (opts.missingLog) return Promise.resolve(null);
       return Promise.resolve({
-        id: pushId,
+        id: opts.logPushId ?? pushId,
         user_id: opts.logUserId ?? USER,
         card_id: opts.logCardId === undefined ? CARD : opts.logCardId,
       });
@@ -126,6 +129,35 @@ Deno.test("handleCardAction surfaces owner and open-card conflicts", async () =>
   assertEquals(result.body.error, "not the owner");
 });
 
+Deno.test("handleCardAction rejects a push that is not about this card", async () => {
+  const db = mockDb({ logCardId: null });
+  const result = await handleCardAction(
+    { token: await token(), action: "done", push_id: PUSH, card_id: CARD },
+    { secret: SECRET, db, nowSeconds: NOW },
+  );
+  assertEquals(result.status, 403);
+  assertEquals(result.body.error, "forbidden");
+  assertEquals(db.applies.length, 0);
+});
+
+Deno.test("handleCardAction fails closed when the rate limiter or push log is down", async () => {
+  const limited = mockDb({ attempts: null });
+  const rate = await handleCardAction(
+    { token: await token(), action: "done", push_id: PUSH, card_id: CARD },
+    { secret: SECRET, db: limited, nowSeconds: NOW },
+  );
+  assertEquals(rate.status, 503);
+  assertEquals(limited.applies.length, 0);
+
+  const down = mockDb({ pushLogError: true });
+  const lookup = await handleCardAction(
+    { token: await token(), action: "done", push_id: PUSH, card_id: CARD },
+    { secret: SECRET, db: down, nowSeconds: NOW },
+  );
+  assertEquals(lookup.status, 503);
+  assertEquals(down.applies.length, 0);
+});
+
 Deno.test("handleCardAction rejects a missing push or malformed body", async () => {
   const db = mockDb({ missingLog: true });
   const missing = await handleCardAction(
@@ -138,4 +170,10 @@ Deno.test("handleCardAction rejects a missing push or malformed body", async () 
     { secret: SECRET, db, nowSeconds: NOW },
   );
   assertEquals(bad.status, 400);
+  const badId = await handleCardAction(
+    { token: "x", action: "done", push_id: "not-a-uuid", card_id: CARD },
+    { secret: SECRET, db, nowSeconds: NOW },
+  );
+  assertEquals(badId.status, 400);
+  assertEquals(db.applies.length, 0);
 });

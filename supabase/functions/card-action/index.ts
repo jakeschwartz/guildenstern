@@ -35,9 +35,10 @@ const db = {
     });
     if (error) {
       console.error("[card-action] noteAttempt failed", error);
-      return 0;
+      return null;
     }
-    return Number(data ?? 0);
+    const n = Number(data);
+    return Number.isFinite(n) ? n : null;
   },
   async getPushLog(pushId: string) {
     const { data, error } = await supabase
@@ -47,7 +48,7 @@ const db = {
       .maybeSingle();
     if (error) {
       console.error("[card-action] getPushLog failed", error);
-      return null;
+      throw new Error("push_log_unavailable");
     }
     return data as { id: string; user_id: string; card_id: string | null } | null;
   },

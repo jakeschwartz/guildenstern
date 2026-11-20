@@ -43,10 +43,15 @@ async function hmac(secret: string, message: string): Promise<Uint8Array> {
   return new Uint8Array(sig);
 }
 
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+const HMAC_LEN = 32;
+
+// Always walks HMAC_LEN bytes. A short or long signature is a mismatch, folded
+// into the same accumulator so the compare does not return early on length.
+function timingSafeEqual(expected: Uint8Array, given: Uint8Array): boolean {
+  let diff = (expected.length === HMAC_LEN ? 0 : 1) | (given.length === HMAC_LEN ? 0 : 1);
+  for (let i = 0; i < HMAC_LEN; i++) {
+    diff |= (expected[i] ?? 0) ^ (given[i] ?? 0);
+  }
   return diff === 0;
 }
 
@@ -71,8 +76,10 @@ export function parseCardActionToken(token: string): { exp: number; sig: string 
   const parts = token.split(".");
   if (parts.length !== 3 || parts[0] !== TOKEN_VERSION) return null;
   const exp = Number(parts[1]);
-  if (!Number.isFinite(exp) || exp <= 0) return null;
-  if (!parts[2]) return null;
+  if (!Number.isInteger(exp) || exp <= 0) return null;
+  // HMAC-SHA256 base64url is 43 chars. Cap well above that so a huge segment
+  // cannot dominate verify time.
+  if (!parts[2] || parts[2].length > 128) return null;
   return { exp, sig: parts[2] };
 }
 
@@ -85,15 +92,17 @@ export async function verifyCardActionToken(
   if (!secret) return { ok: false, reason: "mismatch" };
   const parsed = parseCardActionToken(token);
   if (!parsed) return { ok: false, reason: "malformed" };
-  if (parsed.exp < nowSeconds) return { ok: false, reason: "expired" };
+  // Authenticate before trusting exp. A forged token with a past exp is a
+  // mismatch, not an expired token.
   const fields: TokenFields = { ...expected, exp: parsed.exp };
   const expectedSig = await hmac(secret, payload(fields));
-  let given: Uint8Array;
+  let given: Uint8Array = new Uint8Array();
   try {
     given = b64UrlToBytes(parsed.sig);
   } catch {
-    return { ok: false, reason: "malformed" };
+    given = new Uint8Array();
   }
   if (!timingSafeEqual(expectedSig, given)) return { ok: false, reason: "mismatch" };
+  if (parsed.exp < nowSeconds) return { ok: false, reason: "expired" };
   return { ok: true, fields };
 }

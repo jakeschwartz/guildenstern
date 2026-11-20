@@ -14,9 +14,12 @@ export type CardActionRequest = {
   card_id?: unknown;
 };
 
+export type PushLogRow = { id: string; user_id: string; card_id: string | null };
+
 export type Db = {
-  noteAttempt: (pushId: string | null) => Promise<number>;
-  getPushLog: (pushId: string) => Promise<{ id: string; user_id: string; card_id: string | null } | null>;
+  // null means the limiter itself failed. Callers must fail closed.
+  noteAttempt: (pushId: string | null) => Promise<number | null>;
+  getPushLog: (pushId: string) => Promise<PushLogRow | null>;
   applyAction: (
     pushId: string,
     cardId: string,
@@ -49,25 +52,46 @@ export async function handleCardAction(
 
   const attemptKey = pushId && UUID_RE.test(pushId) ? pushId : null;
   const attempts = await deps.db.noteAttempt(attemptKey);
+  if (attempts === null) {
+    return { status: 503, body: { ok: false, error: "unavailable" } };
+  }
   if (attempts > MAX_ATTEMPTS_PER_10_MIN) {
     return { status: 429, body: { ok: false, error: "rate_limited" } };
   }
 
-  if (!actionRaw || !ACTIONS.has(actionRaw as CardActionName) || !pushId || !cardId || !token) {
+  if (
+    !actionRaw || !ACTIONS.has(actionRaw as CardActionName) || !pushId || !cardId || !token ||
+    !UUID_RE.test(pushId) || !UUID_RE.test(cardId)
+  ) {
     return { status: 400, body: { ok: false, error: "invalid_request" } };
   }
   const action = actionRaw as CardActionName;
 
-  const log = await deps.db.getPushLog(pushId);
+  let log: PushLogRow | null;
+  try {
+    log = await deps.db.getPushLog(pushId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message === "push_log_unavailable") {
+      return { status: 503, body: { ok: false, error: "unavailable" } };
+    }
+    throw e;
+  }
   if (!log) return { status: 404, body: { ok: false, error: "not_found" } };
-  if (log.card_id && log.card_id !== cardId) {
+  // The push row is the binding. A null card_id is not an actionable push,
+  // and a different card_id is not this push. Compare case-insensitively;
+  // the MAC is checked against the stored ids, which are what was signed.
+  if (!log.card_id || log.card_id.toLowerCase() !== cardId.toLowerCase()) {
+    return { status: 403, body: { ok: false, error: "forbidden" } };
+  }
+  if (log.id.toLowerCase() !== pushId.toLowerCase()) {
     return { status: 403, body: { ok: false, error: "forbidden" } };
   }
 
   const verified = await verifyCardActionToken(
     deps.secret,
     token,
-    { pushId, cardId, userId: log.user_id },
+    { pushId: log.id, cardId: log.card_id, userId: log.user_id },
     deps.nowSeconds,
   );
   if (!verified.ok) {
@@ -79,9 +103,12 @@ export async function handleCardAction(
     const result = await deps.db.applyAction(pushId, cardId, log.user_id, action);
     return { status: 200, body: result };
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    const message = (e instanceof Error ? e.message : String(e)).trim().split("\n")[0] ?? "";
     if (message === "not the owner" || message === "card is not open" || message === "card not found") {
       return { status: 409, body: { ok: false, error: message } };
+    }
+    if (message === "forbidden") {
+      return { status: 403, body: { ok: false, error: "forbidden" } };
     }
     if (message === "invalid action" || message === "no partner to pass to") {
       return { status: 400, body: { ok: false, error: message } };

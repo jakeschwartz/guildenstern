@@ -77,6 +77,21 @@ Deno.test("verify rejects a tampered exp or malformed token", async () => {
   const tampered = `${parts[0]}.${Number(parts[1]) + 86_400}.${parts[2]}`;
   const result = await verifyCardActionToken(SECRET, tampered, ids, now);
   assertEquals(result.ok, false);
+  if (!result.ok) assertEquals(result.reason, "mismatch");
   assertEquals((await verifyCardActionToken(SECRET, "not-a-token", ids, now)).ok, false);
   assertEquals((await verifyCardActionToken(SECRET, "", ids, now)).ok, false);
+});
+
+Deno.test("a bad signature with a past exp is mismatch, not expired", async () => {
+  const now = 1_700_000_000;
+  const token = await signCardActionToken(SECRET, ids, now);
+  const parts = token.split(".");
+  const forged = `${parts[0]}.${now - 10}.${parts[2]}`;
+  const result = await verifyCardActionToken(SECRET, forged, ids, now);
+  assertEquals(result.ok, false);
+  if (!result.ok) assertEquals(result.reason, "mismatch");
+  const truncated = `${parts[0]}.${parts[1]}.${parts[2]!.slice(0, 8)}`;
+  const short = await verifyCardActionToken(SECRET, truncated, ids, now);
+  assertEquals(short.ok, false);
+  if (!short.ok) assertEquals(short.reason, "mismatch");
 });

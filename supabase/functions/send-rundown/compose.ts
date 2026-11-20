@@ -30,6 +30,8 @@ export type CardFact = {
   status: "pending" | "accepted" | "done" | "deferred";
   createdAt: number;
   doneAt: number | null;
+  // Epoch ms; a card snoozed into the future is treated as not open.
+  snoozedUntil: number | null;
   clarification: { note: string; askedByUserId: string; status: "open" | "resolved" } | null;
 };
 
@@ -51,6 +53,9 @@ export type RundownInput = {
   // Local clock time, e.g. "9:30" or "3".
   formatTime: (ms: number) => string;
   invitationsThisWeek: number;
+  // Used to decide whether a snooze is still in effect. Defaults to now
+  // inside factsFor when omitted (tests, older callers).
+  now?: number;
 };
 
 export type Candidate = {
@@ -66,7 +71,13 @@ export const EXPLORE_DAYS = 14;
 export const EXPLORE_SHARE = 0.2;
 export const OPEN_WINDOW_MS = 30 * 60 * 1000;
 
-const isOpen = (c: CardFact) => c.status === "pending" || c.status === "accepted";
+export const CARD_ACTION_CATEGORY = "CARD_ACTION";
+
+const isSnoozed = (c: CardFact, now: number) =>
+  c.snoozedUntil !== null && c.snoozedUntil > now;
+
+const isOpen = (c: CardFact, now: number) =>
+  (c.status === "pending" || c.status === "accepted") && !isSnoozed(c, now);
 const tidy = (s: string) => s.trim().replace(/[.!?\s]+$/, "");
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -87,6 +98,7 @@ export type Facts = {
 
 export function factsFor(input: RundownInput): Facts {
   const { userId, partnerId, cards } = input;
+  const now = input.now ?? Date.now();
   const byCreated = (a: CardFact, b: CardFact) => a.createdAt - b.createdAt;
 
   // Your partner tapped "?" on a card: they're waiting on your answer.
@@ -96,14 +108,14 @@ export function factsFor(input: RundownInput): Facts {
   // Open cards your partner put on you since you last looked.
   const fresh = cards
     .filter((c) =>
-      c.ownerId === userId && isOpen(c) && partnerId !== null &&
+      c.ownerId === userId && isOpen(c, now) && partnerId !== null &&
       c.sourceUserId === partnerId && c.createdAt > input.sinceLastLook
     )
     .sort(byCreated);
   const freshIds = new Set(fresh.map((c) => c.id));
   // Everything else open on your list, oldest first.
   const list = cards
-    .filter((c) => c.ownerId === userId && isOpen(c) && !freshIds.has(c.id))
+    .filter((c) => c.ownerId === userId && isOpen(c, now) && !freshIds.has(c.id))
     .sort(byCreated);
   // Things you asked for that someone else finished.
   const handled = cards
@@ -295,4 +307,58 @@ export function pickCandidate(
   const others = candidates.filter((c) => rate(c) !== top);
   if (others.length && rng() < EXPLORE_SHARE) return { candidate: any(others), mode: "explore_other" };
   return { candidate: any(best), mode: "best" };
+}
+
+// ---------- actionable-push experiment (Step 2) ----------
+
+export type ExperimentArm = "actionable" | "count";
+
+// Civil-date parity from the Unix epoch of YYYY-MM-DD (UTC midnight of that
+// date, so DST does not affect the arm). Odd epoch-days are actionable, even
+// days are control. This avoids two odd day-of-month values in a row at a
+// month boundary (31 then 1).
+export function armForLocalDate(isoDate: string): ExperimentArm {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) throw new Error(`invalid local date: ${isoDate}`);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const epochDays = Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+  return epochDays % 2 !== 0 ? "actionable" : "count";
+}
+
+// Format a local YYYY-MM-DD in a named timezone. DST-safe: uses formatToParts.
+export function localISODate(ms: number, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(ms)).map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function pickActionableCard(
+  cards: CardFact[],
+  userId: string,
+  partnerId: string | null,
+  now: number,
+): CardFact | null {
+  if (!partnerId) return null;
+  const open = cards
+    .filter((c) =>
+      c.ownerId === userId &&
+      c.sourceUserId === partnerId &&
+      isOpen(c, now)
+    )
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  return open[0] ?? null;
+}
+
+export function actionableBody(partnerFirst: string, card: CardFact, now: number): string {
+  const days = Math.max(0, Math.floor((now - card.createdAt) / 86_400_000));
+  const age = days === 1 ? "1 day" : `${days} days`;
+  return `${partnerFirst} asked: ${tidy(card.title)} (${age})`;
 }

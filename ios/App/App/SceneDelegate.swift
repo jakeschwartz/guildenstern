@@ -32,6 +32,8 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {
+        // Re-wrap after Capacitor's NotificationRouter claims the delegate.
+        CardActionCenter.installProxy()
         // iOS 16.4+: opt the WKWebView into Web Inspector. Off by default in
         // release builds. Without this, Safari Develop menu shows
         // "No inspectable contents" for the app.

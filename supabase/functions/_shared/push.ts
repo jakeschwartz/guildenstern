@@ -6,7 +6,9 @@
 //   passive — silent, straight to Notification Center.
 // Every push is logged in push_log and carries push_id (so a tap is counted)
 // and, when it's about a thread, thread_id (so a tap opens it). No thread_id
-// means "open the inbox", where Mira's rundown lives.
+// means "open the inbox", where Mira's rundown lives. Actionable rundowns also
+// set aps.category, card_id and action_token. Old builds ignore an unknown
+// category and show a plain notification.
 //
 // Required secrets (set via `supabase secrets set ...`):
 //   APPLE_TEAM_ID         - 10-char team ID
@@ -17,6 +19,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { create as createJWT, getNumericDate } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
+import { signCardActionToken } from "./card_action_token.ts";
 
 const TEAM_ID = Deno.env.get("APPLE_TEAM_ID")!;
 const BUNDLE_ID = Deno.env.get("APPLE_BUNDLE_ID")!;
@@ -76,7 +79,14 @@ async function sendApns(
   apnsEnv: "production" | "sandbox",
   alert: Alert,
   level: Level,
-  opts: { badge: number; threadId: string | null; pushId: string | null },
+  opts: {
+    badge: number;
+    threadId: string | null;
+    pushId: string | null;
+    cardId?: string | null;
+    category?: string | null;
+    actionToken?: string | null;
+  },
 ): Promise<{ status: number; body?: string }> {
   const host =
     apnsEnv === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
@@ -111,10 +121,16 @@ async function sendApns(
             "interruption-level": "passive",
             "relevance-score": 0.2,
           }),
+        // Unknown categories are ignored by iOS, so old TestFlight builds
+        // degrade to a plain push.
+        ...(opts.category ? { category: opts.category } : {}),
       },
-      // Read by the app when the notification is tapped (src/lib/push.ts).
+      // Read by the app when the notification is tapped (src/lib/push.ts),
+      // and by the native CARD_ACTION handler.
       ...(opts.threadId ? { thread_id: opts.threadId } : {}),
       ...(opts.pushId ? { push_id: opts.pushId } : {}),
+      ...(opts.cardId ? { card_id: opts.cardId } : {}),
+      ...(opts.actionToken ? { action_token: opts.actionToken } : {}),
     }),
   });
   if (!res.ok) {
@@ -130,7 +146,15 @@ export async function pushToUser(
   userId: string,
   alert: Alert,
   level: Level,
-  meta: { kind: string; threadId: string | null; variant?: string; slot?: string },
+  meta: {
+    kind: string;
+    threadId: string | null;
+    variant?: string;
+    slot?: string;
+    cardId?: string | null;
+    category?: string;
+    nudgeChannel?: "push" | "rundown" | "otis_message";
+  },
 ): Promise<{ sent: number; failed: number }> {
   const { data: tokens } = await supabase
     .from("push_tokens")
@@ -149,6 +173,7 @@ export async function pushToUser(
       thread_id: meta.threadId,
       variant: meta.variant ?? null,
       slot: meta.slot ?? null,
+      card_id: meta.cardId ?? null,
     })
     .select("id")
     .single();
@@ -156,6 +181,19 @@ export async function pushToUser(
 
   const badge = await pendingCountFor(supabase, userId);
   const jwt = await getApnsJwt();
+
+  let actionToken: string | null = null;
+  if (meta.category && meta.cardId && logRow?.id) {
+    const secret = Deno.env.get("CARD_ACTION_SECRET") ?? "";
+    if (secret) {
+      actionToken = await signCardActionToken(secret, {
+        pushId: logRow.id,
+        cardId: meta.cardId,
+        userId,
+      });
+    }
+  }
+
   const results = await Promise.all(
     tokens.map((t: any) =>
       sendApns(
@@ -164,10 +202,27 @@ export async function pushToUser(
         (t.apns_env as "production" | "sandbox") ?? "production",
         alert,
         level,
-        { badge, threadId: meta.threadId, pushId: logRow?.id ?? null },
+        {
+          badge,
+          threadId: meta.threadId,
+          pushId: logRow?.id ?? null,
+          cardId: meta.cardId ?? null,
+          category: meta.category ?? null,
+          actionToken,
+        },
       )
     ),
   );
+
+  if (logRow?.id) {
+    const rows = results.map((r) => ({
+      push_id: logRow.id,
+      apns_status: r.status,
+      apns_reason: r.body ?? null,
+    }));
+    const { error: delivErr } = await supabase.from("push_delivery").insert(rows);
+    if (delivErr) console.error("[push] push_delivery insert failed", delivErr);
+  }
 
   // Clean up dead tokens (Apple returns 410 Gone for tokens that no longer
   // belong to the app — typically after uninstall).
@@ -178,10 +233,20 @@ export async function pushToUser(
     await supabase.from("push_tokens").delete().in("token", deadTokens);
   }
 
-  return {
-    sent: results.filter((r) => r.status === 200).length,
-    failed: results.filter((r) => r.status !== 200).length,
-  };
+  const sent = results.filter((r) => r.status === 200).length;
+  const failed = results.filter((r) => r.status !== 200).length;
+
+  if (sent > 0 && meta.cardId && logRow?.id) {
+    const { error: nudgeErr } = await supabase.from("card_nudged").insert({
+      card_id: meta.cardId,
+      to_user_id: userId,
+      channel: meta.nudgeChannel ?? "push",
+      push_id: logRow.id,
+    });
+    if (nudgeErr) console.error("[push] card_nudged insert failed", nudgeErr);
+  }
+
+  return { sent, failed };
 }
 
 export async function firstNameOf(

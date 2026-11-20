@@ -8,7 +8,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // the iOS 27 SDK). App-level events still come here; URL opens go there.
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Register before the first push arrives so iOS can show action buttons.
+        // Old builds that never run this still receive a plain notification.
+        // start() also claims the notification delegate early so a lock-screen
+        // action that launched a killed app is handled natively, then re-wraps
+        // Capacitor's NotificationRouter once the bridge loads.
+        CardActionCenter.start()
         return true
     }
 
@@ -27,7 +32,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        CardActionCenter.installProxy()
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

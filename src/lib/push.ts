@@ -32,6 +32,21 @@ let tapListening = false;
 let tapHandler: ((threadId: string | null) => void) | null = null;
 let pendingTap: { threadId: string | null } | null = null;
 
+
+async function submitCardAction(body: {
+  action: string;
+  push_id?: string;
+  card_id?: string;
+  token?: string;
+}): Promise<void> {
+  if (!body.token || !body.push_id || !body.card_id) {
+    console.warn("[push] card action missing token or ids");
+    return;
+  }
+  const { error } = await supabase.functions.invoke("card-action", { body });
+  if (error) console.warn("[push] card-action failed", error.message);
+}
+
 export function onPushOpen(handler: (threadId: string | null) => void): () => void {
   tapHandler = handler;
   if (pendingTap) {
@@ -41,10 +56,25 @@ export function onPushOpen(handler: (threadId: string | null) => void): () => vo
   if (Capacitor.isNativePlatform() && !tapListening) {
     tapListening = true;
     void PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+      const actionId = (action as { actionId?: string }).actionId ?? "tap";
       const data = (action.notification.data ?? {}) as {
         thread_id?: string;
         push_id?: string;
+        card_id?: string;
+        action_token?: string;
       };
+      // JS fallback: if the native handler did not run (or the app was already
+      // in the foreground), POST the same HMAC-authenticated action. The
+      // endpoint is idempotent per push_id+action.
+      if (actionId === "done" || actionId === "tomorrow" || actionId === "pass") {
+        void submitCardAction({
+          action: actionId,
+          push_id: data.push_id,
+          card_id: data.card_id,
+          token: data.action_token,
+        });
+        return;
+      }
       if (data.push_id) {
         supabase
           .rpc("mark_push_opened", { p_push_id: data.push_id })

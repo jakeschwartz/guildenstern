@@ -328,3 +328,8 @@ verify_jwt = false
 
 [functions.scan-calendar]
 verify_jwt = false
+
+# card-action: called from the lock-screen native handler (no session).
+# Auth is a 72h HMAC token, verified inside the function.
+[functions.card-action]
+verify_jwt = false

@@ -17,14 +17,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.106.2";
 import { getValidGoogleAccessToken } from "../_shared/google_token.ts";
 import { firstNameOf, pushToUser } from "../_shared/push.ts";
 import {
+  actionableBody,
+  armForLocalDate,
+  CARD_ACTION_CATEGORY,
   type CardFact,
   draftCandidates,
   type EventFact,
-  pickCandidate,
+  pickActionableCard,
+  pickRundown,
   PUSH_TITLE,
   type RundownInput,
   type SentRundown,
   type Slot,
+  variantModeFromEnv,
 } from "./compose.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -167,7 +172,7 @@ async function gather(
   if (threadIds.length) {
     const { data: rows } = await supabase
       .from("ops_cards")
-      .select("id, thread_id, title, owner_id, source_user_id, status, created_at, done_at, clarification")
+      .select("id, thread_id, title, owner_id, source_user_id, status, created_at, done_at, snoozed_until, clarification")
       .in("thread_id", threadIds);
     cards = (rows ?? []).map((r: any) => ({
       id: r.id,
@@ -178,6 +183,7 @@ async function gather(
       status: r.status,
       createdAt: Date.parse(r.created_at),
       doneAt: r.done_at ? Date.parse(r.done_at) : null,
+      snoozedUntil: r.snoozed_until ? Date.parse(r.snoozed_until) : null,
       clarification: r.clarification && typeof r.clarification === "object"
         ? {
           note: String(r.clarification.note ?? ""),
@@ -212,6 +218,7 @@ async function gather(
     events,
     formatTime: (ms) => clock(ms, tz),
     invitationsThisWeek: invitations ?? 0,
+    now,
   };
 }
 
@@ -313,35 +320,87 @@ async function runFor(
   }
 
   const { sent, opens } = await history(userId, now);
-  const pick = pickCandidate(candidates, sent, opens, now)!;
+  const mode = variantModeFromEnv(Deno.env.get("RUNDOWN_VARIANT_MODE"));
+
+  // Actionable arm: oldest open partner request, excluding still-snoozed cards.
+  // Scheduled runs alternate by local calendar day. Test rundowns prefer
+  // actionable when a card exists, so a TestFlight check is not stuck on a
+  // control day.
+  const card = pickActionableCard(input.cards, userId, input.partnerId, now);
+  const arm = armForLocalDate(local.date);
+  const canSign = Boolean(Deno.env.get("CARD_ACTION_SECRET"));
+  if (mode === "fixed" && card && (test || arm === "actionable") && !canSign) {
+    console.error("[send-rundown] CARD_ACTION_SECRET missing; falling back to count");
+  }
+  const wantActionable = mode === "fixed" && card !== null && canSign && (test || arm === "actionable");
+
+  let variant: string;
+  let body: string;
+  let threadId: string | null;
+  let cardId: string | null = null;
+  let category: string | undefined;
+
+  if (wantActionable && card) {
+    variant = "actionable";
+    body = actionableBody(input.partnerFirst ?? "Your partner", card, now);
+    threadId = card.threadId;
+    cardId = card.id;
+    category = CARD_ACTION_CATEGORY;
+  } else if (mode === "fixed") {
+    // Control (or actionable day with nothing to act on): send `count` only.
+    // list_item is the Step-0-only fallback and is not used once this experiment
+    // is deployed, so the control arm stays comparable.
+    const count = candidates.find((c) => c.variant === "count");
+    if (!count) {
+      await record({ outcome: "skipped_nothing", candidates: candidates.map((c) => c.variant) });
+      return { outcome: "skipped_nothing" };
+    }
+    variant = count.variant;
+    body = count.body;
+    threadId = count.threadId;
+  } else {
+    const pick = pickRundown(candidates, sent, opens, now, mode);
+    // Bandit / fixed-without-this-branch: may skip invitation-only candidate lists.
+    if (!pick) {
+      await record({ outcome: "skipped_nothing", candidates: candidates.map((c) => c.variant) });
+      return { outcome: "skipped_nothing" };
+    }
+    variant = pick.candidate.variant;
+    body = pick.candidate.body;
+    threadId = pick.candidate.threadId;
+  }
+
   // "sent" because it's on its way; build 53's menu shows anything else as
   // "No push sent".
   await beforeSend?.({
     outcome: "sent",
-    variant: pick.candidate.variant,
-    body: pick.candidate.body,
+    variant,
+    body,
   });
   const result = await pushToUser(
     supabase as any,
     userId,
-    { title: PUSH_TITLE, body: pick.candidate.body },
+    { title: PUSH_TITLE, body },
     "active",
     {
       kind: test ? "rundown_test" : "rundown",
-      threadId: pick.candidate.threadId,
-      variant: pick.candidate.variant,
+      threadId,
+      variant,
       slot,
+      cardId,
+      category,
+      nudgeChannel: category ? "rundown" : undefined,
     },
   );
   const outcome: Outcome = result.sent > 0 ? "sent" : "failed";
   await record({
     outcome,
-    variant: pick.candidate.variant,
+    variant,
     candidates: candidates.map((c) => c.variant),
   });
   return test
-    ? { outcome, variant: pick.candidate.variant, body: pick.candidate.body }
-    : { outcome, variant: pick.candidate.variant };
+    ? { outcome, variant, body }
+    : { outcome, variant };
 }
 
 // ---------- handler ----------

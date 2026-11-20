@@ -2,10 +2,13 @@
 // then pick one. Pure functions (no Deno APIs, no I/O) so they can be tested
 // directly; index.ts gathers the data and sends.
 //
-// The variants are an experiment. For the first two weeks of a person's
-// rundowns Mira picks evenly at random among the eligible ones; after that she
-// favors whichever variants got the app opened (a tap, or an open within 30
-// minutes), keeping 1 in 5 for the others so we keep learning.
+// The variants were an experiment. RUNDOWN_VARIANT_MODE=fixed (the default)
+// always sends `count`, falling back to `list_item` if count has no content,
+// and skips if neither is eligible (including quiet evenings that would
+// previously have sent `invitation`). Set RUNDOWN_VARIANT_MODE=bandit to
+// restore the old picker: uniform random for the first two weeks, then the
+// smoothed open rate (tap, or an open within 30 minutes) 80% of the time,
+// keeping 1 in 5 for the others so we keep learning.
 
 export type Slot = "am" | "pm";
 
@@ -233,7 +236,39 @@ export function scoreVariants(history: SentRundown[], opens: number[]): Map<stri
   return scores;
 }
 
-export type Pick = { candidate: Candidate; mode: "explore" | "best" | "explore_other" };
+export type Pick = { candidate: Candidate; mode: "explore" | "best" | "explore_other" | "fixed" };
+
+export type VariantMode = "fixed" | "bandit";
+
+// Anything other than an explicit "bandit" is treated as "fixed", including a
+// missing env var, so a deploy without the secret still stops the experiment.
+export function variantModeFromEnv(raw: string | undefined | null): VariantMode {
+  return raw === "bandit" ? "bandit" : "fixed";
+}
+
+// Strict: only `count`, then `list_item`. Invitation / question / etc. are
+// never sent in fixed mode, even if they are the only candidates.
+export function pickFixed(candidates: Candidate[]): Candidate | null {
+  return candidates.find((c) => c.variant === "count")
+    ?? candidates.find((c) => c.variant === "list_item")
+    ?? null;
+}
+
+export function pickRundown(
+  candidates: Candidate[],
+  history: SentRundown[],
+  opens: number[],
+  now: number,
+  mode: VariantMode,
+  rng: () => number = Math.random,
+): Pick | null {
+  if (mode === "fixed") {
+    const candidate = pickFixed(candidates);
+    return candidate ? { candidate, mode: "fixed" } : null;
+  }
+  return pickCandidate(candidates, history, opens, now, rng);
+}
+
 
 export function pickCandidate(
   candidates: Candidate[],

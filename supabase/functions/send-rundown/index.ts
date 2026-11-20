@@ -20,11 +20,12 @@ import {
   type CardFact,
   draftCandidates,
   type EventFact,
-  pickCandidate,
+  pickRundown,
   PUSH_TITLE,
   type RundownInput,
   type SentRundown,
   type Slot,
+  variantModeFromEnv,
 } from "./compose.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -313,7 +314,14 @@ async function runFor(
   }
 
   const { sent, opens } = await history(userId, now);
-  const pick = pickCandidate(candidates, sent, opens, now)!;
+  const mode = variantModeFromEnv(Deno.env.get("RUNDOWN_VARIANT_MODE"));
+  const pick = pickRundown(candidates, sent, opens, now, mode);
+  // Fixed mode may skip even when other variants (e.g. invitation) were
+  // eligible — that is intentional, see pickFixed.
+  if (!pick) {
+    await record({ outcome: "skipped_nothing", candidates: candidates.map((c) => c.variant) });
+    return { outcome: "skipped_nothing" };
+  }
   // "sent" because it's on its way; build 53's menu shows anything else as
   // "No push sent".
   await beforeSend?.({
